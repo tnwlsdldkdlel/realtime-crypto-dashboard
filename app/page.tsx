@@ -22,10 +22,9 @@ export default async function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-900">
+    <main className="min-h-screen">
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2 text-white">실시간 암호화폐 대시보드</h1>
           <p className="text-gray-400">
             Binance 실시간 암호화폐 가격 정보를 확인하세요
           </p>

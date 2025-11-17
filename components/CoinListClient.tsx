@@ -3,6 +3,8 @@
 import { useEffect } from 'react';
 import { useTickerStore } from '@/stores/tickerStore';
 import type { Ticker } from '@/types';
+import LoadingSpinner from './LoadingSpinner';
+import ErrorMessage from './ErrorMessage';
 
 interface CoinListClientProps {
   initialCoins: Ticker[];
@@ -27,20 +29,17 @@ export default function CoinListClient({
   // 에러 상태 표시
   if (error) {
     return (
-      <div className="bg-red-900/50 border border-red-700 rounded-lg p-4">
-        <p className="text-red-200 font-semibold">데이터 로딩 실패</p>
-        <p className="text-red-300 text-sm mt-1">{error}</p>
-      </div>
+      <ErrorMessage
+        title="데이터 로딩 실패"
+        message={error}
+        onRetry={() => window.location.reload()}
+      />
     );
   }
 
   // 로딩 중 또는 데이터가 없을 때
   if (tickers.size === 0 && initialCoins.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-gray-400">데이터를 불러오는 중...</p>
-      </div>
-    );
+    return <LoadingSpinner text="데이터를 불러오는 중..." />;
   }
 
   return (
