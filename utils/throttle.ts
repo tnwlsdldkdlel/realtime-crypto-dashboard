@@ -8,6 +8,7 @@
  * @param fn 실행할 함수
  * @param delay 지연 시간 (ms)
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function throttle<T extends (...args: any[]) => any>(
   fn: T,
   delay: number
@@ -38,6 +39,7 @@ export function throttle<T extends (...args: any[]) => any>(
  * 디바운스 유틸리티
  * 연속된 호출을 마지막 호출 후 일정 시간 지연 후 실행
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function debounce<T extends (...args: any[]) => any>(
   fn: T,
   delay: number

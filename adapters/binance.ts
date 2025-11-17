@@ -17,7 +17,7 @@ import type { Ticker, Kline } from '@/types';
 export function adaptBinanceTicker(data: BinanceTickerResponse): Ticker {
   return {
     symbol: data.symbol,
-    price: parseFloat(data.price),
+    price: parseFloat(data.lastPrice || data.price || '0'),
     priceChange: parseFloat(data.priceChange),
     priceChangePercent: parseFloat(data.priceChangePercent),
     volume: parseFloat(data.volume),

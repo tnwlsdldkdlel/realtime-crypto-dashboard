@@ -1,0 +1,51 @@
+name: 코드 품질 검사 및 테스트
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  quality-check:
+    name: 코드 품질 검사 및 테스트
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 의존성 설치
+        run: npm ci
+
+      # 1. ESLint 실행 (빠르게 코드 품질 확인)
+      - name: ESLint 실행
+        run: npm run lint
+
+      # 2. Vitest 테스트 실행 (비즈니스 로직 검증)
+      - name: Vitest 테스트 실행
+        run: npm run test:run
+
+      # 3. Next.js 빌드 테스트 (배포 가능 여부 확인)
+      - name: Next.js 빌드 테스트
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 테스트 결과 업로드 (선택사항)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            coverage/
+            test-results/
+            .next/
+          retention-days: 7
+

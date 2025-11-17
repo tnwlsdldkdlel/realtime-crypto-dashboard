@@ -70,7 +70,7 @@ export class BinanceWebSocketClient {
         try {
           const message = JSON.parse(event.data);
           this.handleMessage(message);
-        } catch (error) {
+        } catch {
           this.config.onError?.(new Error('Failed to parse WebSocket message'));
         }
       };
@@ -168,7 +168,13 @@ export class BinanceWebSocketClient {
   /**
    * 메시지 처리
    */
-  private handleMessage(message: any): void {
+  private handleMessage(message: {
+    stream?: string;
+    data?: {
+      stream?: string;
+      k?: { t?: number; T?: number };
+    };
+  }): void {
     if (message.stream?.endsWith('@ticker')) {
       this.config.onTickerMessage?.(message as BinanceTickerStreamMessage);
     } else if (message.stream?.endsWith('@kline_1m')) {

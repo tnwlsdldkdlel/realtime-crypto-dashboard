@@ -65,6 +65,16 @@ export const useTickerStore = create<TickerStore>((set, get) => {
     },
 
     updateTickers: (tickers: Ticker[]) => {
+      // 초기 데이터 설정 시에는 즉시 반영 (배치 업데이트 스킵)
+      if (get().tickers.size === 0 && tickers.length > 50) {
+        const newTickers = new Map<string, Ticker>();
+        tickers.forEach((ticker) => {
+          newTickers.set(ticker.symbol, ticker);
+        });
+        set({ tickers: newTickers });
+        return;
+      }
+      // 실시간 업데이트는 배치 처리
       updateBuffer.push(...tickers);
       scheduleUpdate();
     },
