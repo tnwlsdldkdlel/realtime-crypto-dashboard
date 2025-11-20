@@ -16,6 +16,8 @@
 - [x] GitHub Actions CI/CD 파이프라인 설정 (ESLint, Vitest, 빌드 테스트)
 - [x] 다크 테마 UI 적용
 - [x] 개발 서버 스크립트 (포트 자동 관리)
+- [x] WebSocket 훅 구현 (`useBinanceWebSocket`)
+- [x] 실시간 데이터 WebSocket 통합 및 스토어 업데이트
 
 ---
 
@@ -44,14 +46,16 @@
 
 #### 2.1 코인 목록 컴포넌트 기본 구조
 - [x] `CoinListClient` 컴포넌트 생성 (기본 구조)
-- [ ] 테이블/리스트 레이아웃 디자인 (현재 카드 형태)
+- [x] 테이블/리스트 레이아웃 디자인 (카드 형태에서 테이블 형태로 변경)
 - [x] 기본 데이터 표시 (심볼, 가격, 변동률 등)
+- [x] 반응형 디자인 적용 (모바일/태블릿/데스크톱)
 
 #### 2.2 WebSocket 통합 및 실시간 업데이트
-- [ ] WebSocket 훅 생성 (`useBinanceWebSocket`)
-- [ ] 메인 페이지에서 WebSocket 연결 및 티커 스트림 구독
-- [ ] 실시간 데이터를 Zustand 스토어에 업데이트
-- [ ] 컴포넌트에서 스토어 구독 및 렌더링
+- [x] WebSocket 훅 생성 (`useBinanceWebSocket`)
+- [x] 메인 페이지에서 WebSocket 연결 및 티커 스트림 구독
+- [x] 실시간 데이터를 Zustand 스토어에 업데이트
+- [x] 컴포넌트에서 스토어 구독 및 렌더링
+- [x] WebSocket 연결 상태 UI 표시
 
 #### 2.3 목록 가상화 구현
 - [ ] TanStack Virtual 통합
@@ -141,8 +145,8 @@
 **목표**: 강건한 에러 처리 및 복구 메커니즘
 
 #### 6.1 WebSocket 에러 핸들링
-- [ ] 연결 실패 감지 및 UI 표시
-- [ ] 지수 백오프 재연결 로직 개선
+- [x] 연결 실패 감지 및 UI 표시 (기본 구현 완료)
+- [x] 지수 백오프 재연결 로직 (BinanceWebSocketClient에 구현됨)
 - [ ] 재연결 시도 횟수 제한 및 사용자 알림
 
 #### 6.2 Degraded Mode 구현
