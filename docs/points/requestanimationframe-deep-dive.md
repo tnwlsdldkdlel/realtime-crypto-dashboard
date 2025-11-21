@@ -421,71 +421,93 @@ function useSensorDataVisualization() {
 
 ## 5. 성능 최적화 팁
 
-### 5.1 중복 스케줄링 방지
+### 5.1 중복 스케줄링 방지 (Throttling)
+
+`requestAnimationFrame`은 호출한 횟수만큼 콜백이 예약됩니다. 한 프레임(16ms) 안에 데이터가 100번 들어와서 `requestAnimationFrame`을 100번 호출하면, 다음 프레임에 콜백 함수가 100번 실행됩니다. 이는 배칭(Batching)의 목적을 완전히 무색하게 만듭니다.
+
+**해결책**: `rafId` 변수를 플래그(Flag)처럼 사용하여, 이미 예약된 프레임이 있다면 추가 요청을 무시합니다.
 
 ```typescript
-// ✅ 좋은 예: 중복 방지
+// ✅ 좋은 예: 중복 방지 패턴
 let rafId: number | null = null;
 
 function scheduleUpdate() {
+  // 이미 다음 프레임에 예약이 되어 있다면(rafId !== null), 아무것도 하지 않음
   if (rafId === null) {
     rafId = requestAnimationFrame(() => {
       flushUpdates();
-      rafId = null;
+      rafId = null; // 실행이 끝나면 플래그 초기화 (다음 예약을 받을 준비)
     });
   }
 }
 
 // ❌ 나쁜 예: 매번 새로운 요청
 function scheduleUpdate() {
-  requestAnimationFrame(flushUpdates); // 중복 요청 가능
+  // 데이터가 들어올 때마다 예약 -> 다음 프레임에 flushUpdates가 수십 번 실행됨
+  requestAnimationFrame(flushUpdates); 
 }
 ```
 
-### 5.2 버퍼 크기 제한
+### 5.2 버퍼 크기 제한 (Backpressure Handling)
+
+웹소켓이나 센서 데이터가 폭주하여 소비 속도(렌더링)보다 생산 속도(데이터 수신)가 빠를 경우, 버퍼가 무한정 커질 수 있습니다. 이는 **메모리 부족(OOM)**을 유발하거나, 나중에 한 번에 처리할 때 **긴 프레임 드롭(Long Task)**을 발생시킵니다.
+
+**해결책**: 버퍼에 "최대 용량"을 정해두고, 이를 넘으면 강제로 비우거나(Flush) 오래된 데이터를 버리는 전략을 취합니다.
 
 ```typescript
-// 버퍼가 너무 커지지 않도록 제한
 const MAX_BUFFER_SIZE = 1000;
 
 function addToBuffer(item: Ticker) {
+  // 안전장치: 버퍼가 위험 수위에 도달하면 rAF를 기다리지 않고 즉시 처리
   if (updateBuffer.length >= MAX_BUFFER_SIZE) {
-    // 버퍼가 가득 차면 즉시 처리
-    flushUpdates();
+    console.warn('Buffer overflow! Flushing immediately.');
+    flushUpdates(); 
   }
+  
   updateBuffer.push(item);
   scheduleUpdate();
 }
 ```
 
-### 5.3 초기 데이터는 즉시 반영
+### 5.3 초기 데이터는 즉시 반영 (First Paint Optimization)
+
+배치 업데이트는 필연적으로 **최소 1 프레임(약 16ms)의 지연**을 발생시킵니다. 실시간 업데이트에서는 이 지연이 부드러움을 주지만, 사용자가 처음 페이지에 들어왔을 때 목록이 텅 비어 있다가 16ms 뒤에 깜빡이며 나타나는 것은 좋지 않은 경험(FOUC 유사)입니다.
+
+**해결책**: 데이터가 하나도 없는 "초기 상태"일 때는 배칭을 건너뛰고 즉시 렌더링합니다.
 
 ```typescript
-// 초기 데이터는 배치 처리하지 않고 즉시 반영
 function updateTickers(tickers: Ticker[]) {
+  // 현재 화면에 아무것도 없고(size === 0), 들어온 데이터가 충분히 많다면
   if (get().tickers.size === 0 && tickers.length > 50) {
-    // 초기 로드: 즉시 반영
+    // [최적화] 큐를 거치지 않고 즉시 상태 업데이트 -> 첫 화면 렌더링 속도 향상
     set({ tickers: new Map(tickers.map(t => [t.symbol, t])) });
     return;
   }
   
-  // 실시간 업데이트: 배치 처리
+  // 그 외의 경우(이미 데이터가 있거나 소량 업데이트)는 배칭 처리
   updateBuffer.push(...tickers);
   scheduleUpdate();
 }
 ```
 
-### 5.4 메모리 누수 방지
+### 5.4 메모리 누수 방지 (Cleanup)
+
+SPA(Single Page Application)에서는 페이지를 이동해도 자바스크립트 메모리가 유지됩니다. 컴포넌트가 언마운트(Unmount)되었는데도 `requestAnimationFrame` 콜백이 실행되려 하면, 존재하지 않는 컴포넌트의 상태를 업데이트하려다 에러가 발생하거나 메모리 누수가 생깁니다.
+
+**해결책**: `useEffect`의 cleanup 함수에서 반드시 `cancelAnimationFrame`을 호출해야 합니다.
 
 ```typescript
-// 컴포넌트 언마운트 시 정리
 useEffect(() => {
+  // 애니메이션 시작
   const rafId = requestAnimationFrame(animate);
 
+  // 클린업 함수: 컴포넌트가 사라지거나 다시 렌더링되기 전에 실행
   return () => {
+    // 1. 예약된 프레임 취소
     cancelAnimationFrame(rafId);
-    // 버퍼도 정리
-    updateBuffer = [];
+    
+    // 2. (선택) 처리되지 않고 남은 버퍼 비우기
+    updateBuffer = []; 
   };
 }, []);
 ```
@@ -537,28 +559,59 @@ useEffect(() => {
 }, []);
 ```
 
-### 6.3 실수 3: 동기 작업 수행
+### 6.3 실수 3: 무거운 동기 작업 수행 (Blocking Main Thread)
+
+`requestAnimationFrame` 콜백은 **브라우저가 화면을 그리기(Paint) 바로 직전**에 실행됩니다. 이 소중한 시간(약 16ms) 내에 무거운 계산(Heavy Computation)을 수행하면, 브라우저는 계산이 끝날 때까지 화면을 그리지 못하고 멈춰버립니다. 이를 **프레임 드롭(Frame Drop)** 또는 **Jank**라고 합니다.
+
+**문제 상황**:
+```typescript
+// ❌ 실수: 렌더링 직전에 무거운 계산을 수행하여 프레임을 막음
+function flushUpdates() {
+  // 예: 수천 개의 데이터를 정렬하거나 복잡한 필터링 수행 (100ms 소요)
+  const sortedData = heavySort(updateBuffer); 
+  
+  // 100ms 동안 화면이 멈춘 뒤에야 상태 업데이트 -> 사용자 경험 저하
+  setState(sortedData);
+}
+```
+
+**해결책 1: 작업 분할 (Time Slicing)**
+무거운 작업을 잘게 쪼개서 `setTimeout`이나 `scheduler.postTask`를 통해 메인 스레드를 잠깐씩 양보하며 실행합니다.
 
 ```typescript
-// ❌ 실수: 무거운 동기 작업
+// ✅ 해결 1: 렌더링과 계산을 분리
 function flushUpdates() {
-  // 무거운 계산을 requestAnimationFrame 내에서 수행
-  const result = heavyComputation(); // 프레임 드롭!
-  setState(result);
-}
-
-// ✅ 해결: 비동기 작업 또는 Web Worker 사용
-function flushUpdates() {
-  // 가벼운 작업만 수행
+  // 1. 일단 가벼운 상태 업데이트만 먼저 수행 (화면 갱신)
+  const updates = [...updateBuffer];
   setState(updates);
   
-  // 무거운 작업은 별도로 처리
-  if (needsHeavyComputation) {
-    setTimeout(() => {
-      heavyComputation();
-    }, 0);
-  }
+  // 2. 무거운 계산은 다음 이벤트 루프로 미룸 (렌더링 차단 방지)
+  setTimeout(() => {
+    const result = heavyComputation(updates);
+    // 계산이 끝나면 추가 업데이트
+    setDerivedState(result);
+  }, 0);
 }
+```
+
+**해결책 2: Web Worker 사용**
+계산 작업 자체를 메인 스레드가 아닌 별도의 백그라운드 스레드(Web Worker)로 옮깁니다.
+
+```typescript
+// ✅ 해결 2: Web Worker로 계산 격리
+const worker = new Worker('worker.js');
+
+function flushUpdates() {
+  // 메인 스레드는 UI 렌더링만 담당
+  setState(updates);
+  
+  // 무거운 계산은 워커에게 위임 (메인 스레드 영향 없음)
+  worker.postMessage(updates);
+}
+
+worker.onmessage = (e) => {
+  setDerivedState(e.data);
+};
 ```
 
 ### 6.4 실수 4: 버퍼 무한 증가
