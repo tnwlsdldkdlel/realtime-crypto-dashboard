@@ -28,6 +28,7 @@ export default function CoinListClient({
   
   // 하이라이트 상태 관리 (100ms 스로틀링 적용)
   const [highlightedSymbols, setHighlightedSymbols] = useState<Set<string>>(new Set());
+  const [highlightDirections, setHighlightDirections] = useState<Map<string, PriceChangeDirection>>(new Map());
   const highlightDirectionsRef = useRef<Map<string, PriceChangeDirection>>(new Map());
   const lastHighlightTimeRef = useRef<Map<string, number>>(new Map());
   const rafIdRef = useRef<number | null>(null);
@@ -114,8 +115,13 @@ export default function CoinListClient({
             newHighlightedSymbols.forEach((symbol) => merged.add(symbol));
             return merged;
           });
-          newDirections.forEach((direction, symbol) => {
-            highlightDirectionsRef.current.set(symbol, direction);
+          setHighlightDirections((prev) => {
+            const merged = new Map(prev);
+            newDirections.forEach((direction, symbol) => {
+              merged.set(symbol, direction);
+              highlightDirectionsRef.current.set(symbol, direction);
+            });
+            return merged;
           });
         }
         
@@ -139,14 +145,14 @@ export default function CoinListClient({
       return '';
     }
     
-    const direction = highlightDirectionsRef.current.get(symbol);
+    const direction = highlightDirections.get(symbol);
     if (direction === 'up') {
       return 'bg-green-500/20 transition-colors duration-300';
     } else if (direction === 'down') {
       return 'bg-red-500/20 transition-colors duration-300';
     }
     return '';
-  }, [highlightedSymbols]);
+  }, [highlightedSymbols, highlightDirections]);
 
   // WebSocket 상태 표시용 텍스트
   const wsStatusText = {
@@ -224,7 +230,7 @@ export default function CoinListClient({
             {Array.from(tickers.values()).map((ticker) => {
               const highlightClass = getHighlightClass(ticker.symbol);
               const isHighlighted = highlightedSymbols.has(ticker.symbol);
-              const direction = highlightDirectionsRef.current.get(ticker.symbol);
+              const direction = highlightDirections.get(ticker.symbol);
               
               return (
                 <tr
