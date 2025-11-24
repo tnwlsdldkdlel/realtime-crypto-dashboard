@@ -87,7 +87,6 @@ async function measurePerformance(throttleEnabled, testName) {
       const startTime = performance.now();
       const fpsData = [];
       const renderTimes = [];
-      let lastFrameTime = performance.now();
       let frameCount = 0;
       let lastFpsTime = performance.now();
 

@@ -64,22 +64,6 @@ export default function CoinListClient({
     autoConnect: true,
   });
 
-  // 에러 상태 표시
-  if (error) {
-    return (
-      <ErrorMessage
-        title="데이터 로딩 실패"
-        message={error}
-        onRetry={() => window.location.reload()}
-      />
-    );
-  }
-
-  // 로딩 중 또는 데이터가 없을 때
-  if (tickers.size === 0 && initialCoins.length === 0) {
-    return <LoadingSpinner text="데이터를 불러오는 중..." />;
-  }
-
   /**
    * 가격 변경 감지 및 하이라이트 처리 (100ms 스로틀링)
    */
@@ -147,21 +131,6 @@ export default function CoinListClient({
     };
   }, [tickers]);
 
-  // WebSocket 상태 표시용 텍스트
-  const wsStatusText = {
-    disconnected: '연결 끊김',
-    connecting: '연결 중...',
-    connected: '실시간 업데이트 중',
-    error: '연결 오류',
-  }[wsStatus];
-
-  const wsStatusColor = {
-    disconnected: 'text-gray-500',
-    connecting: 'text-yellow-400',
-    connected: 'text-green-400',
-    error: 'text-red-400',
-  }[wsStatus];
-  
   /**
    * 하이라이트 클래스 가져오기
    */
@@ -178,6 +147,37 @@ export default function CoinListClient({
     }
     return '';
   }, [highlightedSymbols]);
+
+  // WebSocket 상태 표시용 텍스트
+  const wsStatusText = {
+    disconnected: '연결 끊김',
+    connecting: '연결 중...',
+    connected: '실시간 업데이트 중',
+    error: '연결 오류',
+  }[wsStatus];
+
+  const wsStatusColor = {
+    disconnected: 'text-gray-500',
+    connecting: 'text-yellow-400',
+    connected: 'text-green-400',
+    error: 'text-red-400',
+  }[wsStatus];
+
+  // 에러 상태 표시
+  if (error) {
+    return (
+      <ErrorMessage
+        title="데이터 로딩 실패"
+        message={error}
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
+  // 로딩 중 또는 데이터가 없을 때
+  if (tickers.size === 0 && initialCoins.length === 0) {
+    return <LoadingSpinner text="데이터를 불러오는 중..." />;
+  }
 
   return (
     <div>
