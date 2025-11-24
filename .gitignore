@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/performance-results
+/trace.json
 
 # next.js
 /.next/

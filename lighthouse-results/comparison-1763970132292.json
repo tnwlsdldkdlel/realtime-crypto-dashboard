@@ -1,0 +1,42 @@
+{
+  "performance": {
+    "score": {
+      "on": 68,
+      "off": 69,
+      "improvement": -1,
+      "improvementPercent": "-1.4"
+    }
+  },
+  "metrics": {
+    "fcp": {
+      "on": 250,
+      "off": 210,
+      "improvement": -40,
+      "improvementPercent": "-19.0"
+    },
+    "lcp": {
+      "on": 370,
+      "off": 330,
+      "improvement": -40,
+      "improvementPercent": "-12.1"
+    },
+    "tti": {
+      "on": 24153,
+      "off": 24396,
+      "improvement": 243,
+      "improvementPercent": "1.0"
+    },
+    "tbt": {
+      "on": 1096,
+      "off": 996,
+      "improvement": -100,
+      "improvementPercent": "-10.0"
+    },
+    "cls": {
+      "on": 0.013,
+      "off": 0.021,
+      "improvement": 0.008000000000000002,
+      "improvementPercent": "38.1"
+    }
+  }
+}

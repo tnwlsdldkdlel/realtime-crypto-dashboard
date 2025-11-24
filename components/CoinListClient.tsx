@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTickerStore } from '@/stores/tickerStore';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import type { Ticker } from '@/types';
@@ -12,16 +12,34 @@ interface CoinListClientProps {
   error?: string | null;
 }
 
+/**
+ * 가격 변경 방향 타입
+ */
+type PriceChangeDirection = 'up' | 'down' | null;
+
 export default function CoinListClient({
   initialCoins,
   error,
 }: CoinListClientProps) {
   const { updateTickers, tickers } = useTickerStore();
+  
+  // 이전 가격 추적 (가격 변경 감지용)
+  const previousPricesRef = useRef<Map<string, number>>(new Map());
+  
+  // 하이라이트 상태 관리 (100ms 스로틀링 적용)
+  const [highlightedSymbols, setHighlightedSymbols] = useState<Set<string>>(new Set());
+  const highlightDirectionsRef = useRef<Map<string, PriceChangeDirection>>(new Map());
+  const lastHighlightTimeRef = useRef<Map<string, number>>(new Map());
+  const rafIdRef = useRef<number | null>(null);
 
   // 초기 데이터를 스토어에 설정
   useEffect(() => {
     if (initialCoins.length > 0) {
       updateTickers(initialCoins);
+      // 초기 가격 저장
+      initialCoins.forEach((coin) => {
+        previousPricesRef.current.set(coin.symbol, coin.price);
+      });
     }
   }, [initialCoins, updateTickers]);
 
@@ -62,6 +80,73 @@ export default function CoinListClient({
     return <LoadingSpinner text="데이터를 불러오는 중..." />;
   }
 
+  /**
+   * 가격 변경 감지 및 하이라이트 처리 (100ms 스로틀링)
+   */
+  useEffect(() => {
+    const tickerArray = Array.from(tickers.values());
+    
+    // requestAnimationFrame을 사용하여 배치 처리
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        const now = Date.now();
+        const newHighlightedSymbols = new Set<string>();
+        const newDirections = new Map<string, PriceChangeDirection>();
+        
+        tickerArray.forEach((ticker) => {
+          const previousPrice = previousPricesRef.current.get(ticker.symbol);
+          const lastHighlightTime = lastHighlightTimeRef.current.get(ticker.symbol) || 0;
+          
+          // 가격이 변경되었고, 100ms 이상 경과한 경우에만 하이라이트
+          if (previousPrice !== undefined && previousPrice !== ticker.price) {
+            const timeSinceLastHighlight = now - lastHighlightTime;
+            
+            if (timeSinceLastHighlight >= 100) {
+              const direction: PriceChangeDirection = ticker.price > previousPrice ? 'up' : 'down';
+              newHighlightedSymbols.add(ticker.symbol);
+              newDirections.set(ticker.symbol, direction);
+              lastHighlightTimeRef.current.set(ticker.symbol, now);
+              
+              // 300ms 후 하이라이트 제거
+              setTimeout(() => {
+                setHighlightedSymbols((prev) => {
+                  const next = new Set(prev);
+                  next.delete(ticker.symbol);
+                  return next;
+                });
+                highlightDirectionsRef.current.delete(ticker.symbol);
+              }, 300);
+            }
+          }
+          
+          // 현재 가격을 이전 가격으로 저장
+          previousPricesRef.current.set(ticker.symbol, ticker.price);
+        });
+        
+        // 하이라이트 상태 업데이트
+        if (newHighlightedSymbols.size > 0) {
+          setHighlightedSymbols((prev) => {
+            const merged = new Set(prev);
+            newHighlightedSymbols.forEach((symbol) => merged.add(symbol));
+            return merged;
+          });
+          newDirections.forEach((direction, symbol) => {
+            highlightDirectionsRef.current.set(symbol, direction);
+          });
+        }
+        
+        rafIdRef.current = null;
+      });
+    }
+    
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, [tickers]);
+
   // WebSocket 상태 표시용 텍스트
   const wsStatusText = {
     disconnected: '연결 끊김',
@@ -76,6 +161,23 @@ export default function CoinListClient({
     connected: 'text-green-400',
     error: 'text-red-400',
   }[wsStatus];
+  
+  /**
+   * 하이라이트 클래스 가져오기
+   */
+  const getHighlightClass = useCallback((symbol: string): string => {
+    if (!highlightedSymbols.has(symbol)) {
+      return '';
+    }
+    
+    const direction = highlightDirectionsRef.current.get(symbol);
+    if (direction === 'up') {
+      return 'bg-green-500/20 transition-colors duration-300';
+    } else if (direction === 'down') {
+      return 'bg-red-500/20 transition-colors duration-300';
+    }
+    return '';
+  }, [highlightedSymbols]);
 
   return (
     <div>
@@ -119,25 +221,36 @@ export default function CoinListClient({
             </tr>
           </thead>
           <tbody>
-            {Array.from(tickers.values()).map((ticker) => (
-              <tr
-                key={ticker.symbol}
-                className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors"
-              >
-                <td className="py-3 px-4">
-                  <span className="font-semibold text-white">{ticker.symbol}</span>
-                </td>
-                <td className="py-3 px-4 text-right">
-                  <span className="font-semibold text-white">
-                    ${ticker.price.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 8,
-                    })}
-                  </span>
-                </td>
+            {Array.from(tickers.values()).map((ticker) => {
+              const highlightClass = getHighlightClass(ticker.symbol);
+              const isHighlighted = highlightedSymbols.has(ticker.symbol);
+              const direction = highlightDirectionsRef.current.get(ticker.symbol);
+              
+              return (
+                <tr
+                  key={ticker.symbol}
+                  className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${highlightClass}`}
+                >
+                  <td className="py-3 px-4">
+                    <span className="font-semibold text-white text-base">{ticker.symbol}</span>
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    <span className={`font-bold text-lg ${
+                      isHighlighted
+                        ? direction === 'up'
+                          ? 'text-green-400'
+                          : 'text-red-400'
+                        : 'text-white'
+                    } transition-colors duration-300`}>
+                      ${ticker.price.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 8,
+                      })}
+                    </span>
+                  </td>
                 <td className="py-3 px-4 text-right">
                   <span
-                    className={`font-semibold ${
+                    className={`font-bold text-base ${
                       ticker.priceChangePercent >= 0
                         ? 'text-green-400'
                         : 'text-red-400'
@@ -165,7 +278,8 @@ export default function CoinListClient({
                   })}
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>

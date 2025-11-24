@@ -17,6 +17,7 @@
 9. [커스텀 훅을 통한 WebSocket 관리](#9-커스텀-훅을-통한-websocket-관리)
 10. [React ref를 사용한 의존성 문제 해결](#10-react-ref를-사용한-의존성-문제-해결)
 11. [반응형 테이블 레이아웃 디자인](#11-반응형-테이블-레이아웃-디자인)
+12. [가격 변경 감지 및 애니메이션 스로틀링](#12-가격-변경-감지-및-애니메이션-스로틀링)
 
 ---
 
@@ -822,6 +823,214 @@ Tailwind CSS의 반응형 유틸리티를 활용하여 화면 크기에 따라 �
 
 ---
 
+## 12. 가격 변경 감지 및 애니메이션 스로틀링
+
+**위치**: `components/CoinListClient.tsx`
+
+### 핵심 개념
+
+실시간 데이터 변경을 감지하고 시각적 피드백을 제공하기 위해 `useRef`를 사용하여 이전 값을 추적하고, 애니메이션 스로틀링을 적용하여 과도한 애니메이션을 방지합니다. `requestAnimationFrame`과 `setTimeout`을 조합하여 성능 최적화와 자동 제거를 구현합니다.
+
+### 구현 코드
+
+```typescript
+// 이전 가격 추적 (가격 변경 감지용)
+const previousPricesRef = useRef<Map<string, number>>(new Map());
+
+// 하이라이트 상태 관리 (100ms 스로틀링 적용)
+const [highlightedSymbols, setHighlightedSymbols] = useState<Set<string>>(new Set());
+const highlightDirectionsRef = useRef<Map<string, PriceChangeDirection>>(new Map());
+const lastHighlightTimeRef = useRef<Map<string, number>>(new Map());
+const rafIdRef = useRef<number | null>(null);
+
+/**
+ * 가격 변경 감지 및 하이라이트 처리 (100ms 스로틀링)
+ */
+useEffect(() => {
+  const tickerArray = Array.from(tickers.values());
+  
+  // requestAnimationFrame을 사용하여 배치 처리
+  if (rafIdRef.current === null) {
+    rafIdRef.current = requestAnimationFrame(() => {
+      const now = Date.now();
+      const newHighlightedSymbols = new Set<string>();
+      const newDirections = new Map<string, PriceChangeDirection>();
+      
+      tickerArray.forEach((ticker) => {
+        const previousPrice = previousPricesRef.current.get(ticker.symbol);
+        const lastHighlightTime = lastHighlightTimeRef.current.get(ticker.symbol) || 0;
+        
+        // 가격이 변경되었고, 100ms 이상 경과한 경우에만 하이라이트
+        if (previousPrice !== undefined && previousPrice !== ticker.price) {
+          const timeSinceLastHighlight = now - lastHighlightTime;
+          
+          if (timeSinceLastHighlight >= 100) {
+            const direction: PriceChangeDirection = ticker.price > previousPrice ? 'up' : 'down';
+            newHighlightedSymbols.add(ticker.symbol);
+            newDirections.set(ticker.symbol, direction);
+            lastHighlightTimeRef.current.set(ticker.symbol, now);
+            
+            // 300ms 후 하이라이트 제거
+            setTimeout(() => {
+              setHighlightedSymbols((prev) => {
+                const next = new Set(prev);
+                next.delete(ticker.symbol);
+                return next;
+              });
+              highlightDirectionsRef.current.delete(ticker.symbol);
+            }, 300);
+          }
+        }
+        
+        // 현재 가격을 이전 가격으로 저장
+        previousPricesRef.current.set(ticker.symbol, ticker.price);
+      });
+      
+      // 하이라이트 상태 업데이트
+      if (newHighlightedSymbols.size > 0) {
+        setHighlightedSymbols((prev) => {
+          const merged = new Set(prev);
+          newHighlightedSymbols.forEach((symbol) => merged.add(symbol));
+          return merged;
+        });
+        newDirections.forEach((direction, symbol) => {
+          highlightDirectionsRef.current.set(symbol, direction);
+        });
+      }
+      
+      rafIdRef.current = null;
+    });
+  }
+  
+  return () => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+  };
+}, [tickers]);
+```
+
+### 핵심 패턴
+
+#### 1. useRef를 사용한 이전 값 추적
+
+```typescript
+const previousPricesRef = useRef<Map<string, number>>(new Map());
+
+// 이전 가격과 비교
+const previousPrice = previousPricesRef.current.get(ticker.symbol);
+if (previousPrice !== undefined && previousPrice !== ticker.price) {
+  // 가격 변경 감지
+}
+
+// 현재 가격을 이전 가격으로 저장
+previousPricesRef.current.set(ticker.symbol, ticker.price);
+```
+
+**장점:**
+- 리렌더링 없이 이전 값 추적 가능
+- Map을 사용하여 여러 항목의 이전 값 관리
+- 메모리 효율적
+
+#### 2. 애니메이션 스로틀링 패턴
+
+```typescript
+const lastHighlightTimeRef = useRef<Map<string, number>>(new Map());
+
+const lastHighlightTime = lastHighlightTimeRef.current.get(ticker.symbol) || 0;
+const timeSinceLastHighlight = now - lastHighlightTime;
+
+if (timeSinceLastHighlight >= 100) {
+  // 100ms 이상 경과한 경우에만 하이라이트
+  lastHighlightTimeRef.current.set(ticker.symbol, now);
+}
+```
+
+**장점:**
+- 고빈도 업데이트에서 과도한 애니메이션 방지
+- 각 항목별로 독립적인 스로틀링 관리
+- 사용자 경험 개선 (너무 빠른 깜빡임 방지)
+
+#### 3. requestAnimationFrame과 setTimeout의 조합
+
+```typescript
+// requestAnimationFrame: 배치 처리 및 성능 최적화
+rafIdRef.current = requestAnimationFrame(() => {
+  // 가격 변경 감지 및 하이라이트 처리
+});
+
+// setTimeout: 자동 제거
+setTimeout(() => {
+  setHighlightedSymbols((prev) => {
+    const next = new Set(prev);
+    next.delete(ticker.symbol);
+    return next;
+  });
+}, 300);
+```
+
+**장점:**
+- `requestAnimationFrame`: 브라우저 렌더링 사이클과 동기화
+- `setTimeout`: 일정 시간 후 자동 제거
+- 두 API의 장점을 결합한 패턴
+
+#### 4. Set과 Map을 활용한 복합 상태 관리
+
+```typescript
+// Set: 하이라이트된 심볼 목록 (빠른 조회)
+const [highlightedSymbols, setHighlightedSymbols] = useState<Set<string>>(new Set());
+
+// Map: 각 심볼의 방향 정보 (키-값 쌍)
+const highlightDirectionsRef = useRef<Map<string, PriceChangeDirection>>(new Map());
+
+// 효율적인 상태 업데이트
+setHighlightedSymbols((prev) => {
+  const merged = new Set(prev);
+  newHighlightedSymbols.forEach((symbol) => merged.add(symbol));
+  return merged;
+});
+```
+
+**장점:**
+- Set: O(1) 조회 성능, 중복 자동 제거
+- Map: 키-값 쌍 관리, 빠른 조회
+- 상태 분리로 관리 용이
+
+### 학습 가치
+
+- **이전 값 추적**: `useRef`로 리렌더링 없이 이전 값 비교
+- **성능 최적화**: `requestAnimationFrame`으로 배치 처리
+- **애니메이션 제어**: 스로틀링으로 과도한 애니메이션 방지
+- **자동 제거**: `setTimeout`으로 일정 시간 후 자동 정리
+- **복합 상태 관리**: Set과 Map을 활용한 효율적인 상태 관리
+
+### 패턴 비교
+
+| 패턴 | 사용 시기 | 장점 |
+| :--- | :--- | :--- |
+| **useRef로 이전 값 추적** | 값 변경 감지가 필요할 때 | 리렌더링 없이 이전 값 비교 |
+| **애니메이션 스로틀링** | 고빈도 업데이트 시 | 과도한 애니메이션 방지 |
+| **RAF + setTimeout** | 배치 처리 + 자동 제거 | 성능 최적화 + 자동 정리 |
+| **Set + Map 상태 관리** | 복합 상태 관리 | 효율적인 조회 및 업데이트 |
+
+### 실무 적용
+
+- **실시간 주식/암호화폐 가격 업데이트**: 가격 변경 시 하이라이트
+- **게임 UI**: 점수 변경 시 애니메이션
+- **대시보드**: 지표 변경 시 시각적 피드백
+- **채팅 애플리케이션**: 새 메시지 알림
+- **알림 시스템**: 상태 변경 시 하이라이트
+
+### 주의사항
+
+1. **메모리 누수 방지**: 컴포넌트 언마운트 시 `cancelAnimationFrame` 호출
+2. **스로틀링 간격 조정**: 사용자 경험에 맞게 간격 조정 (100ms 권장)
+3. **하이라이트 지속 시간**: 너무 짧으면 인식 어려움, 너무 길면 시각적 혼란 (300ms 권장)
+4. **Set/Map 초기화**: 컴포넌트 재마운트 시 초기화 필요
+
+---
+
 ## 🎯 실무 적용 시나리오
 
 ### 시나리오 1: 실시간 주식 대시보드
@@ -843,6 +1052,8 @@ Tailwind CSS의 반응형 유틸리티를 활용하여 화면 크기에 따라 �
 - **커스텀 훅**: WebSocket 연결을 재사용 가능한 훅으로 추상화
 - **ref 패턴**: 의존성 문제 없이 최신 함수 참조 유지
 - **반응형 디자인**: 다양한 디바이스에서 최적의 사용자 경험 제공
+- **가격 변경 감지**: useRef로 이전 값 추적하여 변경 감지
+- **애니메이션 스로틀링**: 100ms 간격 제한으로 과도한 애니메이션 방지
 
 ---
 
@@ -863,11 +1074,12 @@ Tailwind CSS의 반응형 유틸리티를 활용하여 화면 크기에 따라 �
 
 ## 💡 핵심 요약
 
-1. **성능 최적화**: 배치 업데이트, Map 데이터 구조, ref를 통한 의존성 최적화
+1. **성능 최적화**: 배치 업데이트, Map 데이터 구조, ref를 통한 의존성 최적화, 애니메이션 스로틀링
 2. **안정성**: 지수 백오프, Rate Limit 처리, 디바운스, WebSocket 재연결
 3. **유지보수성**: 어댑터 패턴, 리포지토리 패턴, 커스텀 훅 추상화
-4. **사용자 경험**: 반응형 디자인, Server Components, 실시간 업데이트
+4. **사용자 경험**: 반응형 디자인, Server Components, 실시간 업데이트, 가격 변경 하이라이트
 5. **최신 기술**: Next.js Server Components, TypeScript, Tailwind CSS
+6. **상태 관리**: Set과 Map을 활용한 복합 상태 관리, 이전 값 추적 패턴
 
 이러한 패턴들을 이해하고 적용하면, 고성능이고 유지보수하기 쉬운 애플리케이션을 구축할 수 있습니다.
 

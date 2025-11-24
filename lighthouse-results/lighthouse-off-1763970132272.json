@@ -1,0 +1,19 @@
+{
+  "testName": "스로틀링 OFF",
+  "throttleEnabled": false,
+  "timestamp": "2025-11-24T07:42:12.272Z",
+  "performance": {
+    "score": 69,
+    "metrics": {
+      "fcp": 210,
+      "lcp": 330,
+      "tti": 24396,
+      "tbt": 996,
+      "cls": "0.021"
+    },
+    "details": {
+      "renderBlockingResources": 0,
+      "unusedJavaScript": 262
+    }
+  }
+}
