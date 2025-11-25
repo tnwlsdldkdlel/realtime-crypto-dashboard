@@ -14,7 +14,8 @@
 6. [성능 최적화 팁](#6-성능-최적화-팁)
 7. [자주 하는 실수와 해결 방법](#7-자주-하는-실수와-해결-방법)
 8. [실무 예제](#8-실무-예제)
-9. [실제 프로젝트 성능 테스트 결과](#9-실제-프로젝트-성능-테스트-결과)
+9. [프로젝트 적용 전략: 데이터 vs 하이라이트](#9-프로젝트-적용-전략-데이터-vs-하이라이트)
+10. [실제 프로젝트 성능 테스트 결과](#10-실제-프로젝트-성능-테스트-결과)
 
 ---
 
@@ -397,30 +398,102 @@ window.addEventListener('scroll', throttledScroll);
 
 ### 5.2 실시간 가격 하이라이트 스로틀링
 
+#### 핵심 전략: 데이터는 최신 유지, 하이라이트만 스로틀링
+
+이 프로젝트에서는 **데이터(가격)는 스로틀링 없이 항상 최신 상태를 유지**하고, **하이라이트 애니메이션만 스로틀링**을 적용합니다.
+
+#### 데이터 업데이트 (스로틀링 없음)
+
+```typescript
+// stores/tickerStore.ts
+updateTicker: (ticker: Ticker) => {
+  updateBuffer.push(ticker);  // ✅ 모든 데이터는 버퍼에 쌓음
+  scheduleUpdate();  // requestAnimationFrame으로 배치 처리
+}
+
+// components/CoinListClient.tsx
+{Array.from(tickers.values()).map((ticker) => (
+  <td>${ticker.price}</td>  // ✅ 항상 최신 가격 표시 (스로틀링 없음)
+))}
+```
+
+**특징:**
+- 모든 가격 업데이트는 버퍼에 쌓임
+- `requestAnimationFrame`으로 배치 처리되지만, 모든 데이터는 최신 상태 유지
+- 화면에 표시되는 가격은 항상 최신
+
+#### 하이라이트 애니메이션 (스로틀링 적용)
+
 ```typescript
 // components/CoinListClient.tsx
 const lastHighlightTimeRef = useRef<Map<string, number>>(new Map());
 
 useEffect(() => {
-  const now = Date.now();
+  const tickerArray = Array.from(tickers.values());
   
-  tickers.forEach((ticker) => {
-    const lastHighlightTime = lastHighlightTimeRef.current.get(ticker.symbol) || 0;
-    const timeSinceLastHighlight = now - lastHighlightTime;
-    
-    // 100ms 이상 경과한 경우에만 하이라이트
-    if (timeSinceLastHighlight >= 100) {
-      triggerHighlight(ticker.symbol);
-      lastHighlightTimeRef.current.set(ticker.symbol, now);
-    }
-  });
+  if (rafIdRef.current === null) {
+    rafIdRef.current = requestAnimationFrame(() => {
+      const now = Date.now();
+      
+      tickerArray.forEach((ticker) => {
+        const previousPrice = previousPricesRef.current.get(ticker.symbol);
+        const lastHighlightTime = lastHighlightTimeRef.current.get(ticker.symbol) || 0;
+        
+        // 가격이 변경되었고, 100ms 이상 경과한 경우에만 하이라이트
+        if (previousPrice !== undefined && previousPrice !== ticker.price) {
+          const timeSinceLastHighlight = now - lastHighlightTime;
+          
+          // ✅ 하이라이트만 스로틀링 (100ms)
+          if (timeSinceLastHighlight >= 100) {
+            triggerHighlight(ticker.symbol);
+            lastHighlightTimeRef.current.set(ticker.symbol, now);
+          }
+        }
+        
+        // ✅ 가격은 항상 최신으로 저장 (스로틀링 없음)
+        previousPricesRef.current.set(ticker.symbol, ticker.price);
+      });
+    });
+  }
 }, [tickers]);
 ```
+
+**특징:**
+- 하이라이트 애니메이션만 100ms마다 최대 1번 실행
+- 가격 데이터는 항상 최신 상태 유지
+
+#### 시각적 비교
+
+```
+WebSocket 메시지: BTCUSDT $50,000 → $50,100 → $50,200 → $50,300
+
+데이터 (스로틀링 없음):
+화면 표시: $50,000 → $50,100 → $50,200 → $50,300 ✅ (항상 최신)
+
+하이라이트 (스로틀링 적용):
+0ms:   하이라이트 ✅ ($50,000 → $50,100)
+16ms:  스킵 ❌ ($50,100 → $50,200)
+32ms:  스킵 ❌ ($50,200 → $50,300)
+100ms: 하이라이트 ✅ (다음 변경)
+```
+
+#### 왜 이렇게 하는가?
+
+**데이터는 최신이어야 함:**
+- 사용자는 항상 최신 가격을 봐야 함
+- 가격 지연은 문제가 될 수 있음
+- 스로틀링을 적용하면 가격이 지연됨
+
+**하이라이트는 적절한 빈도가 필요:**
+- 너무 자주 깜빡이면 시각적 피로
+- 100ms 간격이면 충분히 인지 가능
+- UI 안정성과 가독성 향상
 
 **효과:**
 - 초당 수백 개 업데이트 중 최대 초당 10번 하이라이트
 - 화면 깜빡임 감소
 - 사용자 경험 개선
+- 데이터는 항상 최신 상태 유지
 
 ### 5.3 리사이즈 이벤트 스로틀링
 
@@ -827,9 +900,127 @@ function PriceList({ tickers }: { tickers: Ticker[] }) {
 
 ---
 
-## 9. 실제 프로젝트 성능 테스트 결과
+## 9. 프로젝트 적용 전략: 데이터 vs 하이라이트
 
-### 9.1 Chrome DevTools Performance API 테스트
+### 9.0 핵심 원칙
+
+이 프로젝트에서 스로틀링을 적용할 때 중요한 원칙은 다음과 같습니다:
+
+> **데이터는 항상 최신 상태를 유지하고, 시각적 피드백(하이라이트)만 스로틀링을 적용합니다.**
+
+### 9.0.1 데이터 vs 하이라이트 비교표
+
+| 항목 | 스로틀링 적용 | 이유 |
+| :--- | :--- | :--- |
+| **데이터 (가격)** | ❌ 없음 | 항상 최신 상태 유지 필요 |
+| **하이라이트 애니메이션** | ✅ 100ms | UI 안정성 및 사용자 경험 개선 |
+
+### 9.0.2 구현 세부사항
+
+#### 데이터 업데이트 흐름
+
+```typescript
+// 1. WebSocket 메시지 수신
+websocket.onmessage = (message) => {
+  const ticker = parseMessage(message);
+  
+  // 2. 스토어에 즉시 추가 (스로틀링 없음)
+  updateTicker(ticker);  // ✅ 모든 데이터는 버퍼에 쌓음
+};
+
+// 3. requestAnimationFrame으로 배치 처리
+function scheduleUpdate() {
+  if (rafId === null) {
+    rafId = requestAnimationFrame(() => {
+      // 4. 모든 최신 데이터를 한 번에 업데이트
+      flushUpdates();  // ✅ 모든 데이터는 최신 상태 유지
+    });
+  }
+}
+
+// 5. 화면에 표시
+{ticker.price}  // ✅ 항상 최신 가격
+```
+
+#### 하이라이트 애니메이션 흐름
+
+```typescript
+// 1. 가격 변경 감지
+useEffect(() => {
+  tickers.forEach((ticker) => {
+    const previousPrice = previousPricesRef.current.get(ticker.symbol);
+    
+    // 2. 가격이 변경되었는지 확인
+    if (previousPrice !== ticker.price) {
+      const lastHighlightTime = lastHighlightTimeRef.current.get(ticker.symbol) || 0;
+      const timeSinceLastHighlight = Date.now() - lastHighlightTime;
+      
+      // 3. 100ms 스로틀링: 하이라이트만 제한
+      if (timeSinceLastHighlight >= 100) {
+        triggerHighlight(ticker.symbol);  // ✅ 하이라이트만 스로틀링
+        lastHighlightTimeRef.current.set(ticker.symbol, Date.now());
+      }
+    }
+    
+    // 4. 가격은 항상 최신으로 저장 (스로틀링 없음)
+    previousPricesRef.current.set(ticker.symbol, ticker.price);  // ✅ 항상 업데이트
+  });
+}, [tickers]);
+```
+
+### 9.0.3 requestAnimationFrame과 스로틀링의 조합
+
+이 프로젝트에서는 두 가지 최적화 기법을 함께 사용합니다:
+
+1. **`requestAnimationFrame`**: 브라우저 렌더링 사이클과 동기화 (최대 60 FPS)
+2. **스로틀링**: 하이라이트 빈도 제한 (100ms 간격)
+
+**조합 효과:**
+- `requestAnimationFrame`은 렌더링을 60 FPS로 배치 처리
+- 스로틀링은 하이라이트를 100ms마다 최대 1번으로 제한
+- 결과: 부드러운 렌더링 + 적절한 시각적 피드백
+
+**시각적 표현:**
+```
+requestAnimationFrame: 렌더링을 60 FPS로 배치
+  ↓
+스로틀링: 하이라이트를 100ms마다 최대 1번
+  ↓
+결과: 부드러운 화면 + 적절한 깜빡임
+```
+
+### 9.0.4 왜 데이터에 스로틀링을 적용하지 않는가?
+
+**만약 데이터에도 스로틀링을 적용한다면:**
+
+```typescript
+// ❌ 잘못된 예시
+const throttledUpdate = throttle((ticker) => {
+  updateTicker(ticker);  // 100ms마다 최대 1번만 업데이트
+}, 100);
+
+websocket.onmessage = (message) => {
+  const ticker = parseMessage(message);
+  throttledUpdate(ticker);  // ❌ 가격이 지연됨
+};
+```
+
+**문제점:**
+- 가격이 100ms 지연됨
+- 사용자가 최신 가격을 보지 못함
+- 거래 결정에 영향을 줄 수 있음
+- 실시간 데이터의 의미가 없어짐
+
+**올바른 접근:**
+- 데이터는 항상 최신 상태 유지
+- 하이라이트만 스로틀링으로 제한
+- 사용자는 최신 가격을 보면서 적절한 시각적 피드백을 받음
+
+---
+
+## 10. 실제 프로젝트 성능 테스트 결과
+
+### 10.1 Chrome DevTools Performance API 테스트
 
 이 프로젝트에서 스로틀링 ON/OFF 상태를 Chrome DevTools Performance API와 Puppeteer로 실시간 업데이트 중 성능을 측정한 결과입니다.
 
@@ -910,7 +1101,7 @@ function PriceList({ tickers }: { tickers: Ticker[] }) {
 }
 ```
 
-### 9.2 결과 분석
+### 10.2 결과 분석
 
 #### 실시간 업데이트 성능 측정
 
@@ -945,7 +1136,7 @@ function PriceList({ tickers }: { tickers: Ticker[] }) {
 - **Long Tasks**: 50ms 이상 걸리는 작업. 적을수록 좋음
 - **메모리 사용량**: JavaScript 힙 메모리 사용량
 
-### 9.3 결론
+### 10.3 결론
 
 #### 실시간 업데이트 성능 (Performance API 측정)
 
@@ -979,7 +1170,7 @@ function PriceList({ tickers }: { tickers: Ticker[] }) {
    - 최적의 렌더링 성능
    - 사용자 경험 향상
 
-### 9.4 테스트 실행 방법
+### 10.4 테스트 실행 방법
 
 ```bash
 # 개발 서버 실행 (다른 터미널)
@@ -1018,7 +1209,9 @@ npm run performance
 4. **메모리 관리**: 클린업 함수로 이벤트 리스너와 타이머 정리
 5. **React 최적화**: `useRef`, `useMemo`, `useCallback` 활용
 6. **사용 시기**: 스크롤, 리사이즈, 실시간 데이터 시각화
-7. **실제 효과**: 최소 렌더링 시간 72.3% 개선, 렌더링 빈도 약간 감소, 안정적인 FPS 유지
+7. **프로젝트 전략**: 데이터는 최신 유지, 하이라이트만 스로틀링 적용
+8. **requestAnimationFrame과 조합**: 렌더링 배치 처리 + 하이라이트 빈도 제한
+9. **실제 효과**: 최소 렌더링 시간 72.3% 개선, 렌더링 빈도 약간 감소, 안정적인 FPS 유지
 
 이러한 패턴들을 이해하고 적용하면, 고성능이고 사용자 친화적인 웹 애플리케이션을 구축할 수 있습니다.
 

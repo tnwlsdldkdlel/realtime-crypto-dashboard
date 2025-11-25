@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTickerStore } from '@/stores/tickerStore';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import type { Ticker } from '@/types';
@@ -17,6 +18,16 @@ interface CoinListClientProps {
  */
 type PriceChangeDirection = 'up' | 'down' | null;
 
+/**
+ * 정렬 필드 타입
+ */
+type SortField = 'symbol' | 'price' | 'priceChangePercent' | 'volume' | 'highPrice' | 'lowPrice' | null;
+
+/**
+ * 정렬 방향 타입
+ */
+type SortDirection = 'asc' | 'desc';
+
 export default function CoinListClient({
   initialCoins,
   error,
@@ -32,6 +43,11 @@ export default function CoinListClient({
   const highlightDirectionsRef = useRef<Map<string, PriceChangeDirection>>(new Map());
   const lastHighlightTimeRef = useRef<Map<string, number>>(new Map());
   const rafIdRef = useRef<number | null>(null);
+
+  // 정렬 및 필터링 상태 관리
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // 초기 데이터를 스토어에 설정
   useEffect(() => {
@@ -169,6 +185,104 @@ export default function CoinListClient({
     error: 'text-red-400',
   }[wsStatus];
 
+  /**
+   * 정렬 및 필터링된 티커 배열
+   */
+  const tickerArray = useMemo(() => {
+    let filtered = Array.from(tickers.values());
+
+    // 필터링: 심볼 검색
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toUpperCase();
+      filtered = filtered.filter((ticker) =>
+        ticker.symbol.toUpperCase().includes(query)
+      );
+    }
+
+    // 정렬
+    if (sortField) {
+      filtered = [...filtered].sort((a, b) => {
+        let aValue: number | string;
+        let bValue: number | string;
+
+        switch (sortField) {
+          case 'symbol':
+            aValue = a.symbol;
+            bValue = b.symbol;
+            break;
+          case 'price':
+            aValue = a.price;
+            bValue = b.price;
+            break;
+          case 'priceChangePercent':
+            aValue = a.priceChangePercent;
+            bValue = b.priceChangePercent;
+            break;
+          case 'volume':
+            aValue = a.volume;
+            bValue = b.volume;
+            break;
+          case 'highPrice':
+            aValue = a.highPrice;
+            bValue = b.highPrice;
+            break;
+          case 'lowPrice':
+            aValue = a.lowPrice;
+            bValue = b.lowPrice;
+            break;
+          default:
+            return 0;
+        }
+
+        // 숫자 비교
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          return sortDirection === 'asc'
+            ? aValue - bValue
+            : bValue - aValue;
+        }
+
+        // 문자열 비교
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortDirection === 'asc'
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
+        }
+
+        return 0;
+      });
+    }
+
+    return filtered;
+  }, [tickers, sortField, sortDirection, searchQuery]);
+
+  /**
+   * 정렬 핸들러
+   */
+  const handleSort = useCallback((field: SortField) => {
+    if (sortField === field) {
+      // 같은 필드 클릭 시 방향 토글
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      // 다른 필드 클릭 시 내림차순으로 설정
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  }, [sortField]);
+
+  // 가상화 컨테이너 ref
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  // 행 높이 (px)
+  const ROW_HEIGHT = 60;
+
+  // 가상화 설정
+  const rowVirtualizer = useVirtualizer({
+    count: tickerArray.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 5, // 화면 밖에 5개 행 미리 렌더링
+  });
+
   // 에러 상태 표시
   if (error) {
     return (
@@ -187,107 +301,227 @@ export default function CoinListClient({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <p className="text-gray-300">
             로드된 코인 수: <span className="font-semibold text-white">{tickers.size}</span>
+            {searchQuery && (
+              <span className="ml-2 text-gray-400">
+                (필터링: {tickerArray.length}개)
+              </span>
+            )}
           </p>
           <p className={`text-sm ${wsStatusColor}`}>
             {wsStatusText}
           </p>
         </div>
-        <p className="text-sm text-gray-400">
-          초기 데이터: {initialCoins.length}개
-        </p>
+        <div className="flex items-center gap-4">
+          {/* 검색 입력 */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="심볼 검색..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 pl-10 text-white placeholder-gray-400 focus:border-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-600 sm:w-64"
+            />
+            <svg
+              className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
+          <p className="text-sm text-gray-400 hidden sm:block">
+            초기 데이터: {initialCoins.length}개
+          </p>
+        </div>
       </div>
 
-      {/* 테이블 형태 코인 목록 */}
+      {/* 테이블 형태 코인 목록 (가상화 적용) */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-gray-700">
-              <th className="text-left py-3 px-4 text-sm font-semibold text-gray-400">
-                심볼
-              </th>
-              <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400">
-                현재가
-              </th>
-              <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400">
-                24h 변동률
-              </th>
-              <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden md:table-cell">
-                거래량
-              </th>
-              <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:table-cell">
-                고가
-              </th>
-              <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:table-cell">
-                저가
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from(tickers.values()).map((ticker) => {
-              const highlightClass = getHighlightClass(ticker.symbol);
-              const isHighlighted = highlightedSymbols.has(ticker.symbol);
-              const direction = highlightDirections.get(ticker.symbol);
-              
-              return (
-                <tr
-                  key={ticker.symbol}
-                  className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${highlightClass}`}
-                >
-                  <td className="py-3 px-4">
-                    <span className="font-semibold text-white text-base">{ticker.symbol}</span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <span className={`font-bold text-lg ${
-                      isHighlighted
-                        ? direction === 'up'
-                          ? 'text-green-400'
-                          : 'text-red-400'
-                        : 'text-white'
-                    } transition-colors duration-300`}>
-                      ${ticker.price.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 8,
-                      })}
-                    </span>
-                  </td>
-                <td className="py-3 px-4 text-right">
-                  <span
-                    className={`font-bold text-base ${
-                      ticker.priceChangePercent >= 0
-                        ? 'text-green-400'
-                        : 'text-red-400'
-                    }`}
+        <div className="relative">
+          <table className="w-full border-collapse">
+            {/* 테이블 헤더 (고정) */}
+            <thead className="sticky top-0 z-10 bg-gray-900">
+              <tr className="border-b border-gray-700">
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-400">
+                  <button
+                    onClick={() => handleSort('symbol')}
+                    className="flex items-center gap-1 hover:text-white transition-colors"
                   >
-                    {ticker.priceChangePercent >= 0 ? '+' : ''}
-                    {ticker.priceChangePercent.toFixed(2)}%
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-right text-gray-300 hidden md:table-cell">
-                  {ticker.volume.toLocaleString(undefined, {
-                    maximumFractionDigits: 0,
-                  })}
-                </td>
-                <td className="py-3 px-4 text-right text-gray-400 hidden lg:table-cell">
-                  ${ticker.highPrice.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 8,
-                  })}
-                </td>
-                <td className="py-3 px-4 text-right text-gray-400 hidden lg:table-cell">
-                  ${ticker.lowPrice.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 8,
-                  })}
-                </td>
+                    심볼
+                    {sortField === 'symbol' && (
+                      <span className="text-xs">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400">
+                  <button
+                    onClick={() => handleSort('price')}
+                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
+                  >
+                    현재가
+                    {sortField === 'price' && (
+                      <span className="text-xs">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400">
+                  <button
+                    onClick={() => handleSort('priceChangePercent')}
+                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
+                  >
+                    24h 변동률
+                    {sortField === 'priceChangePercent' && (
+                      <span className="text-xs">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden md:table-cell">
+                  <button
+                    onClick={() => handleSort('volume')}
+                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
+                  >
+                    거래량
+                    {sortField === 'volume' && (
+                      <span className="text-xs">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:table-cell">
+                  <button
+                    onClick={() => handleSort('highPrice')}
+                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
+                  >
+                    고가
+                    {sortField === 'highPrice' && (
+                      <span className="text-xs">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:table-cell">
+                  <button
+                    onClick={() => handleSort('lowPrice')}
+                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
+                  >
+                    저가
+                    {sortField === 'lowPrice' && (
+                      <span className="text-xs">
+                        {sortDirection === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
               </tr>
-            );
-            })}
-          </tbody>
-        </table>
+            </thead>
+          </table>
+
+          {/* 가상화된 테이블 바디 */}
+          <div
+            ref={parentRef}
+            className="overflow-auto"
+            style={{
+              height: '600px', // 최대 높이 설정 (필요에 따라 조정)
+            }}
+          >
+            <table className="w-full border-collapse">
+              <tbody
+                style={{
+                  height: `${rowVirtualizer.getTotalSize()}px`,
+                  position: 'relative',
+                }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const ticker = tickerArray[virtualRow.index];
+                  const highlightClass = getHighlightClass(ticker.symbol);
+                  const isHighlighted = highlightedSymbols.has(ticker.symbol);
+                  const direction = highlightDirections.get(ticker.symbol);
+
+                  return (
+                    <tr
+                      key={ticker.symbol}
+                      data-index={virtualRow.index}
+                      ref={rowVirtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${highlightClass}`}
+                    >
+                      <td className="py-3 px-4">
+                        <span className="font-semibold text-white text-base">{ticker.symbol}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className={`font-bold text-lg ${
+                          isHighlighted
+                            ? direction === 'up'
+                              ? 'text-green-400'
+                              : 'text-red-400'
+                            : 'text-white'
+                        } transition-colors duration-300`}>
+                          ${ticker.price.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 8,
+                          })}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span
+                          className={`font-bold text-base ${
+                            ticker.priceChangePercent >= 0
+                              ? 'text-green-400'
+                              : 'text-red-400'
+                          }`}
+                        >
+                          {ticker.priceChangePercent >= 0 ? '+' : ''}
+                          {ticker.priceChangePercent.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right text-gray-300 hidden md:table-cell">
+                        {ticker.volume.toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })}
+                      </td>
+                      <td className="py-3 px-4 text-right text-gray-400 hidden lg:table-cell">
+                        ${ticker.highPrice.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 8,
+                        })}
+                      </td>
+                      <td className="py-3 px-4 text-right text-gray-400 hidden lg:table-cell">
+                        ${ticker.lowPrice.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 8,
+                        })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );
