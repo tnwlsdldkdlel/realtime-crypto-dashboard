@@ -62,31 +62,49 @@ export class BinanceWebSocketClient {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        this.setStatus('connected');
-        this.reconnectAttempts = 0;
+        // WebSocket이 아직 유효한 경우에만 상태 변경
+        if (this.ws && this.config) {
+          this.setStatus('connected');
+          this.reconnectAttempts = 0;
+        }
       };
 
       this.ws.onmessage = (event) => {
+        // WebSocket이 아직 유효한 경우에만 메시지 처리
+        if (!this.ws || !this.config) {
+          return;
+        }
         try {
           const message = JSON.parse(event.data);
           this.handleMessage(message);
         } catch {
-          this.config.onError?.(new Error('Failed to parse WebSocket message'));
+          if (this.config) {
+            this.config.onError?.(new Error('Failed to parse WebSocket message'));
+          }
         }
       };
 
       this.ws.onerror = () => {
-        this.setStatus('error');
-        this.config.onError?.(new Error('WebSocket error occurred'));
+        // WebSocket이 아직 유효한 경우에만 상태 변경
+        if (this.ws && this.config) {
+          this.setStatus('error');
+          this.config.onError?.(new Error('WebSocket error occurred'));
+        }
       };
 
       this.ws.onclose = () => {
-        this.setStatus('disconnected');
-        this.scheduleReconnect();
+        // WebSocket이 아직 유효한 경우에만 상태 변경 및 재연결
+        if (this.ws && this.config) {
+          this.setStatus('disconnected');
+          this.scheduleReconnect();
+        }
       };
     } catch (error) {
-      this.setStatus('error');
-      this.config.onError?.(error as Error);
+      // config가 유효한 경우에만 에러 처리
+      if (this.config) {
+        this.setStatus('error');
+        this.config.onError?.(error as Error);
+      }
     }
   }
 
@@ -104,6 +122,13 @@ export class BinanceWebSocketClient {
         return `${symbolLower}@kline_1m`; // 1분봉
       }
     });
+
+    const hasNewStreams = streams.some((stream) => !this.subscribedStreams.has(stream));
+    
+    if (!hasNewStreams) {
+      // 이미 구독된 스트림이면 스킵
+      return;
+    }
 
     streams.forEach((stream) => this.subscribedStreams.add(stream));
 
@@ -138,6 +163,42 @@ export class BinanceWebSocketClient {
   }
 
   /**
+   * 구독 전체 업데이트 (대규모 변경 시 사용)
+   * 기존 구독을 모두 해제하고 새 구독으로 한 번에 재연결
+   * @param symbols 새로 구독할 심볼 목록
+   * @param type 스트림 타입
+   */
+  updateSubscription(symbols: string[], type: StreamType): void {
+    const streams = symbols.map((symbol) => {
+      const symbolLower = symbol.toLowerCase();
+      if (type === 'ticker') {
+        return `${symbolLower}@ticker`;
+      } else {
+        return `${symbolLower}@kline_1m`;
+      }
+    });
+
+    // 기존 구독 모두 해제 (내부 상태만 정리)
+    this.subscribedStreams.clear();
+    
+    // 새 구독으로 설정
+    streams.forEach((stream) => this.subscribedStreams.add(stream));
+
+    // 심볼이 없으면 연결 해제
+    if (this.subscribedStreams.size === 0) {
+      this.disconnect();
+      return;
+    }
+
+    // 한 번만 재연결 (연결 끊김 최소화)
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.reconnect();
+    } else {
+      this.connect();
+    }
+  }
+
+  /**
    * 재연결 (디바운스)
    */
   private reconnect(): void {
@@ -158,11 +219,24 @@ export class BinanceWebSocketClient {
     }
 
     if (this.ws) {
-      this.ws.close();
+      // 이벤트 리스너를 먼저 제거하여 페이지 이동 시 오류 방지
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      
+      // WebSocket 닫기
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close();
+      }
+      
       this.ws = null;
     }
 
-    this.setStatus('disconnected');
+    // 상태 변경 (config가 유효한 경우에만)
+    if (this.config) {
+      this.setStatus('disconnected');
+    }
   }
 
   /**
@@ -175,6 +249,11 @@ export class BinanceWebSocketClient {
       k?: { t?: number; T?: number };
     };
   }): void {
+    // config가 유효한 경우에만 메시지 처리
+    if (!this.config) {
+      return;
+    }
+    
     if (message.stream?.endsWith('@ticker')) {
       this.config.onTickerMessage?.(message as BinanceTickerStreamMessage);
     } else if (message.stream?.endsWith('@kline_1m')) {
@@ -188,7 +267,10 @@ export class BinanceWebSocketClient {
   private setStatus(status: WebSocketStatus): void {
     if (this.status !== status) {
       this.status = status;
-      this.config.onStatusChange?.(status);
+      // config가 유효한 경우에만 콜백 호출 (페이지 이동 시 오류 방지)
+      if (this.config) {
+        this.config.onStatusChange?.(status);
+      }
     }
   }
 
@@ -196,7 +278,7 @@ export class BinanceWebSocketClient {
    * 지수 백오프 재연결 스케줄링
    */
   private scheduleReconnect(): void {
-    if (this.reconnectTimer) {
+    if (this.reconnectTimer || !this.config) {
       return;
     }
 
@@ -204,8 +286,11 @@ export class BinanceWebSocketClient {
     this.reconnectAttempts++;
 
     this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
+      // 타이머 실행 시점에 config가 유효한지 확인
+      if (this.config) {
+        this.reconnectTimer = null;
+        this.connect();
+      }
     }, delay);
   }
 

@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
+    "test:functional": "node scripts/functional-test.js",
     "performance": "node scripts/performance-test.js"
   },
   "dependencies": {

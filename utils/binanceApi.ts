@@ -6,6 +6,7 @@
 import type { BinanceTickerResponse } from '@/types/binance';
 import { adaptBinanceTicker } from '@/adapters/binance';
 import type { Ticker } from '@/types';
+import { getCoinNamesKOBatch } from '@/utils/coinNames';
 
 const BINANCE_API_BASE_URL = 'https://api.binance.com/api/v3';
 
@@ -65,7 +66,18 @@ export async function fetchInitialCoins(limit = 100): Promise<Ticker[]> {
       .sort((a, b) => parseFloat(b.volume) - parseFloat(a.volume))
       .slice(0, limit);
 
-    return usdtPairs.map(adaptBinanceTicker);
+    // 티커 데이터 변환
+    const tickers = usdtPairs.map(adaptBinanceTicker);
+    
+    // 한국어 이름 배치로 가져오기 (JSON에 없는 코인만)
+    const symbols = tickers.map((t) => t.symbol);
+    const namesKO = await getCoinNamesKOBatch(symbols);
+    
+    // 한국어 이름 추가
+    return tickers.map((ticker) => ({
+      ...ticker,
+      nameKO: ticker.nameKO || namesKO[ticker.symbol] || undefined,
+    }));
   } catch (error) {
     console.error('Error fetching initial coins:', error);
     throw error;

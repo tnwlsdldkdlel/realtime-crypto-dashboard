@@ -101,25 +101,85 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
    * 심볼 구독 관리
    * 심볼이 있을 때만 구독하고 연결
    */
+  const previousSymbolsRef = useRef<string[]>([]);
+
   useEffect(() => {
     const client = clientRef.current;
     if (!client || !autoConnect) {
       return;
     }
 
-    // 심볼이 있을 때만 구독 (subscribe 내부에서 자동으로 connect 호출)
-    if (symbols.length > 0) {
-      client.subscribe(symbols, 'ticker');
-    } else {
-      // 심볼이 없으면 연결 해제
-      client.disconnect();
+    const previousSymbols = previousSymbolsRef.current;
+    const currentSymbols = symbols;
+
+    // 심볼 목록이 변경되지 않았으면 스킵
+    if (
+      previousSymbols.length === currentSymbols.length &&
+      previousSymbols.every((sym, idx) => sym === currentSymbols[idx])
+    ) {
+      return;
     }
 
-    return () => {
-      // 클린업: 구독 해제
-      if (client && symbols.length > 0) {
-        client.unsubscribe(symbols, 'ticker');
+    // 대규모 변경 감지 (즐겨찾기 변경처럼 심볼 목록이 크게 바뀌는 경우)
+    const isMajorChange =
+      previousSymbols.length === 0 || // 첫 구독
+      currentSymbols.length === 0 || // 모두 해제
+      // 변경 비율이 50% 이상이면 대규모 변경으로 간주
+      (previousSymbols.length > 0 &&
+        Math.abs(previousSymbols.length - currentSymbols.length) /
+          Math.max(previousSymbols.length, 1) >
+          0.5) ||
+      // 공통 심볼이 50% 미만이면 대규모 변경
+      (previousSymbols.length > 0 &&
+        currentSymbols.length > 0 &&
+        previousSymbols.filter((sym) => currentSymbols.includes(sym)).length /
+          Math.max(previousSymbols.length, currentSymbols.length) <
+          0.5);
+
+    if (isMajorChange) {
+      // 대규모 변경: 전체 재구독 (한 번만 재연결)
+      if (currentSymbols.length > 0) {
+        client.updateSubscription(currentSymbols, 'ticker');
+      } else {
+        // 심볼이 없으면 연결 해제
+        if (previousSymbols.length > 0) {
+          client.disconnect();
+        }
       }
+    } else {
+      // 소규모 변경: 차등 구독 (기존 로직)
+      // 이전 구독 해제
+      if (previousSymbols.length > 0) {
+        const symbolsToUnsubscribe = previousSymbols.filter(
+          (sym) => !currentSymbols.includes(sym)
+        );
+        if (symbolsToUnsubscribe.length > 0) {
+          client.unsubscribe(symbolsToUnsubscribe, 'ticker');
+        }
+      }
+
+      // 새 구독 추가
+      if (currentSymbols.length > 0) {
+        const symbolsToSubscribe = currentSymbols.filter(
+          (sym) => !previousSymbols.includes(sym)
+        );
+        if (symbolsToSubscribe.length > 0) {
+          client.subscribe(symbolsToSubscribe, 'ticker');
+        }
+      } else {
+        // 심볼이 없으면 연결 해제
+        if (previousSymbols.length > 0) {
+          client.disconnect();
+        }
+      }
+    }
+
+    // 현재 심볼을 이전 심볼로 저장
+    previousSymbolsRef.current = currentSymbols;
+
+    return () => {
+      // 클린업: 컴포넌트 언마운트 시에만 구독 해제
+      // 일반적인 심볼 변경 시에는 위에서 처리
     };
   }, [symbols, autoConnect]);
 

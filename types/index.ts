@@ -8,6 +8,7 @@
  */
 export interface Ticker {
   symbol: string;
+  nameKO?: string; // 한국어 코인 이름
   price: number;
   priceChange: number;
   priceChangePercent: number;

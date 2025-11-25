@@ -10,13 +10,18 @@ import type {
   BinanceKlineStreamMessage,
 } from '@/types/binance';
 import type { Ticker, Kline } from '@/types';
+import coinNamesKO from '@/data/coinNamesKO.json';
 
 /**
  * Binance REST API 티커 응답을 도메인 타입으로 변환
  */
 export function adaptBinanceTicker(data: BinanceTickerResponse): Ticker {
+  // JSON 파일에서 먼저 확인 (동기)
+  const jsonName = (coinNamesKO as Record<string, string>)[data.symbol];
+  
   return {
     symbol: data.symbol,
+    nameKO: jsonName || undefined, // JSON에 없으면 undefined (나중에 비동기로 가져올 수 있음)
     price: parseFloat(data.lastPrice || data.price || '0'),
     priceChange: parseFloat(data.priceChange),
     priceChangePercent: parseFloat(data.priceChangePercent),
@@ -49,8 +54,12 @@ export function adaptBinanceTickerStream(
   message: BinanceTickerStreamMessage
 ): Ticker {
   const { data } = message;
+  // JSON 파일에서 먼저 확인 (동기)
+  const jsonName = (coinNamesKO as Record<string, string>)[data.s];
+  
   return {
     symbol: data.s,
+    nameKO: jsonName || undefined, // JSON에 없으면 undefined (나중에 비동기로 가져올 수 있음)
     price: parseFloat(data.c),
     priceChange: parseFloat(data.p),
     priceChangePercent: parseFloat(data.P),

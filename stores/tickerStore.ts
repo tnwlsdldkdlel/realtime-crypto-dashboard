@@ -31,6 +31,11 @@ function flushUpdates() {
   storeSetState((state) => {
     const newTickers = new Map(state.tickers);
     updates.forEach((ticker) => {
+      // 기존 티커의 nameKO를 유지 (WebSocket 업데이트 시 한국어 이름 보존)
+      const existingTicker = state.tickers.get(ticker.symbol);
+      if (existingTicker?.nameKO && !ticker.nameKO) {
+        ticker.nameKO = existingTicker.nameKO;
+      }
       newTickers.set(ticker.symbol, ticker);
     });
     return { tickers: newTickers };

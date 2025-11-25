@@ -3,14 +3,17 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTickerStore } from '@/stores/tickerStore';
+import { useFavoriteStore } from '@/stores/favoriteStore';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import type { Ticker } from '@/types';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorMessage from './ErrorMessage';
+import FavoriteButton from './FavoriteButton';
 
 interface CoinListClientProps {
   initialCoins: Ticker[];
   error?: string | null;
+  favoritesOnly?: boolean; // 즐겨찾기 전용 모드
 }
 
 /**
@@ -31,8 +34,10 @@ type SortDirection = 'asc' | 'desc';
 export default function CoinListClient({
   initialCoins,
   error,
+  favoritesOnly = false,
 }: CoinListClientProps) {
   const { updateTickers, tickers } = useTickerStore();
+  const { favorites } = useFavoriteStore();
   
   // 이전 가격 추적 (가격 변경 감지용)
   const previousPricesRef = useRef<Map<string, number>>(new Map());
@@ -61,9 +66,47 @@ export default function CoinListClient({
   }, [initialCoins, updateTickers]);
 
   // 구독할 심볼 목록 추출
-  const symbols = useMemo(() => {
+  const allSymbols = useMemo(() => {
+    if (favoritesOnly) {
+      // 즐겨찾기 전용 모드: 즐겨찾기만 구독
+      return favorites.filter((symbol) =>
+        initialCoins.some((coin) => coin.symbol === symbol)
+      );
+    }
+    // 일반 모드: 즐겨찾기가 있으면 즐겨찾기만, 없으면 전체
+    if (favorites.length > 0) {
+      return favorites.filter((symbol) =>
+        initialCoins.some((coin) => coin.symbol === symbol)
+      );
+    }
     return initialCoins.map((coin) => coin.symbol);
-  }, [initialCoins]);
+  }, [initialCoins, favorites, favoritesOnly]);
+
+  // 디바운스된 심볼 목록 (WebSocket 재구독 최적화)
+  const [debouncedSymbols, setDebouncedSymbols] = useState<string[]>(allSymbols);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    // 이전 타이머 클리어
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // 300ms 후 업데이트
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedSymbols(allSymbols);
+      debounceTimerRef.current = null;
+    }, 300);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [allSymbols]);
+
+  const symbols = debouncedSymbols;
 
   // WebSocket 연결 및 구독
   const { status: wsStatus } = useBinanceWebSocket({
@@ -191,6 +234,11 @@ export default function CoinListClient({
   const tickerArray = useMemo(() => {
     let filtered = Array.from(tickers.values());
 
+    // 즐겨찾기 전용 모드: 즐겨찾기된 코인만 필터링
+    if (favoritesOnly) {
+      filtered = filtered.filter((ticker) => favorites.includes(ticker.symbol));
+    }
+
     // 필터링: 심볼 검색
     if (searchQuery.trim()) {
       const query = searchQuery.trim().toUpperCase();
@@ -253,7 +301,7 @@ export default function CoinListClient({
     }
 
     return filtered;
-  }, [tickers, sortField, sortDirection, searchQuery]);
+  }, [tickers, sortField, sortDirection, searchQuery, favoritesOnly, favorites]);
 
   /**
    * 정렬 핸들러
@@ -274,6 +322,9 @@ export default function CoinListClient({
 
   // 행 높이 (px)
   const ROW_HEIGHT = 60;
+
+  // 컬럼 너비 정의 (px) - 헤더와 바디 모두 동일하게 사용
+  const COLUMN_WIDTHS = [48, 120, 150, 120, 150, 150, 150] as const;
 
   // 가상화 설정
   const rowVirtualizer = useVirtualizer({
@@ -299,10 +350,22 @@ export default function CoinListClient({
     return <LoadingSpinner text="데이터를 불러오는 중..." />;
   }
 
+  // 즐겨찾기 전용 모드에서 즐겨찾기가 없을 때
+  if (favoritesOnly && favorites.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-400 text-lg mb-4">즐겨찾기한 코인이 없습니다</p>
+        <p className="text-gray-500 text-sm">
+          코인 목록에서 별 아이콘을 클릭하여 즐겨찾기에 추가하세요
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <p className="text-gray-300">
             로드된 코인 수: <span className="font-semibold text-white">{tickers.size}</span>
             {searchQuery && (
@@ -311,6 +374,11 @@ export default function CoinListClient({
               </span>
             )}
           </p>
+          {favorites.length > 0 && (
+            <p className="text-gray-300">
+              즐겨찾기: <span className="font-semibold text-yellow-400">{favorites.length}개</span>
+            </p>
+          )}
           <p className={`text-sm ${wsStatusColor}`}>
             {wsStatusText}
           </p>
@@ -347,179 +415,196 @@ export default function CoinListClient({
 
       {/* 테이블 형태 코인 목록 (가상화 적용) */}
       <div className="overflow-x-auto">
-        <div className="relative">
-          <table className="w-full border-collapse">
-            {/* 테이블 헤더 (고정) */}
-            <thead className="sticky top-0 z-10 bg-gray-900">
-              <tr className="border-b border-gray-700">
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-400">
-                  <button
-                    onClick={() => handleSort('symbol')}
-                    className="flex items-center gap-1 hover:text-white transition-colors"
-                  >
-                    심볼
-                    {sortField === 'symbol' && (
-                      <span className="text-xs">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </button>
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400">
-                  <button
-                    onClick={() => handleSort('price')}
-                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
-                  >
-                    현재가
-                    {sortField === 'price' && (
-                      <span className="text-xs">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </button>
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400">
-                  <button
-                    onClick={() => handleSort('priceChangePercent')}
-                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
-                  >
-                    24h 변동률
-                    {sortField === 'priceChangePercent' && (
-                      <span className="text-xs">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </button>
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden md:table-cell">
-                  <button
-                    onClick={() => handleSort('volume')}
-                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
-                  >
-                    거래량
-                    {sortField === 'volume' && (
-                      <span className="text-xs">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </button>
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:table-cell">
-                  <button
-                    onClick={() => handleSort('highPrice')}
-                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
-                  >
-                    고가
-                    {sortField === 'highPrice' && (
-                      <span className="text-xs">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </button>
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:table-cell">
-                  <button
-                    onClick={() => handleSort('lowPrice')}
-                    className="flex items-center justify-end gap-1 w-full hover:text-white transition-colors"
-                  >
-                    저가
-                    {sortField === 'lowPrice' && (
-                      <span className="text-xs">
-                        {sortDirection === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </button>
-                </th>
-              </tr>
-            </thead>
-          </table>
-
-          {/* 가상화된 테이블 바디 */}
+        {/* 헤더 (CSS Grid 사용) */}
+        <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-700">
           <div
-            ref={parentRef}
-            className="overflow-auto"
             style={{
-              height: '600px', // 최대 높이 설정 (필요에 따라 조정)
+              display: 'grid',
+              gridTemplateColumns: `48px repeat(${COLUMN_WIDTHS.length}, 1fr)`,
+            }}
+            className="w-full"
+          >
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
+              {/* 즐겨찾기 컬럼 */}
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
+              <button
+                onClick={() => handleSort('symbol')}
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+              >
+                심볼
+                {sortField === 'symbol' && (
+                  <span className="text-xs">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
+              코인명
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
+              <button
+                onClick={() => handleSort('price')}
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+              >
+                현재가
+                {sortField === 'price' && (
+                  <span className="text-xs">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
+              <button
+                onClick={() => handleSort('priceChangePercent')}
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+              >
+                24h 변동률
+                {sortField === 'priceChangePercent' && (
+                  <span className="text-xs">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400 hidden md:block">
+              <button
+                onClick={() => handleSort('volume')}
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+              >
+                거래량
+                {sortField === 'volume' && (
+                  <span className="text-xs">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:block">
+              <button
+                onClick={() => handleSort('highPrice')}
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+              >
+                고가
+                {sortField === 'highPrice' && (
+                  <span className="text-xs">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:block">
+              <button
+                onClick={() => handleSort('lowPrice')}
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+              >
+                저가
+                {sortField === 'lowPrice' && (
+                  <span className="text-xs">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 가상화된 바디 (CSS Grid 사용) */}
+        <div
+          ref={parentRef}
+          className="overflow-auto"
+          style={{
+            height: '600px', // 최대 높이 설정
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              height: `${rowVirtualizer.getTotalSize()}px`,
             }}
           >
-            <table className="w-full border-collapse">
-              <tbody
-                style={{
-                  height: `${rowVirtualizer.getTotalSize()}px`,
-                  position: 'relative',
-                }}
-              >
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const ticker = tickerArray[virtualRow.index];
-                  const highlightClass = getHighlightClass(ticker.symbol);
-                  const isHighlighted = highlightedSymbols.has(ticker.symbol);
-                  const direction = highlightDirections.get(ticker.symbol);
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const ticker = tickerArray[virtualRow.index];
+              const highlightClass = getHighlightClass(ticker.symbol);
+              const isHighlighted = highlightedSymbols.has(ticker.symbol);
+              const direction = highlightDirections.get(ticker.symbol);
 
-                  return (
-                    <tr
-                      key={ticker.symbol}
-                      data-index={virtualRow.index}
-                      ref={rowVirtualizer.measureElement}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                      className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${highlightClass}`}
+              return (
+                <div
+                  key={ticker.symbol}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: virtualRow.start,
+                    left: 0,
+                    right: 0,
+                    display: 'grid',
+                    gridTemplateColumns: `48px repeat(${COLUMN_WIDTHS.length}, 1fr)`,
+                    height: `${ROW_HEIGHT}px`,
+                    boxSizing: 'border-box',
+                  }}
+                  className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${highlightClass}`}
+                >
+                  <div className="py-3 px-4 flex items-center justify-center">
+                    <FavoriteButton symbol={ticker.symbol} />
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center">
+                    <span className="font-semibold text-white text-base">{ticker.symbol}</span>
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center">
+                    <span className="font-semibold text-white text-base">
+                      {ticker.nameKO || ticker.symbol.replace('USDT', '')}
+                    </span>
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center">
+                    <span className={`font-bold text-lg ${
+                      isHighlighted
+                        ? direction === 'up'
+                          ? 'text-green-400'
+                          : 'text-red-400'
+                        : 'text-white'
+                    } transition-colors duration-300`}>
+                      ${ticker.price.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 8,
+                      })}
+                    </span>
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center">
+                    <span
+                      className={`font-bold text-base ${
+                        ticker.priceChangePercent >= 0
+                          ? 'text-green-400'
+                          : 'text-red-400'
+                      }`}
                     >
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-white text-base">{ticker.symbol}</span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span className={`font-bold text-lg ${
-                          isHighlighted
-                            ? direction === 'up'
-                              ? 'text-green-400'
-                              : 'text-red-400'
-                            : 'text-white'
-                        } transition-colors duration-300`}>
-                          ${ticker.price.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 8,
-                          })}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span
-                          className={`font-bold text-base ${
-                            ticker.priceChangePercent >= 0
-                              ? 'text-green-400'
-                              : 'text-red-400'
-                          }`}
-                        >
-                          {ticker.priceChangePercent >= 0 ? '+' : ''}
-                          {ticker.priceChangePercent.toFixed(2)}%
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right text-gray-300 hidden md:table-cell">
-                        {ticker.volume.toLocaleString(undefined, {
-                          maximumFractionDigits: 0,
-                        })}
-                      </td>
-                      <td className="py-3 px-4 text-right text-gray-400 hidden lg:table-cell">
-                        ${ticker.highPrice.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 8,
-                        })}
-                      </td>
-                      <td className="py-3 px-4 text-right text-gray-400 hidden lg:table-cell">
-                        ${ticker.lowPrice.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 8,
-                        })}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      {ticker.priceChangePercent >= 0 ? '+' : ''}
+                      {ticker.priceChangePercent.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center text-gray-300 hidden md:flex">
+                    {ticker.volume.toLocaleString(undefined, {
+                      maximumFractionDigits: 0,
+                    })}
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center text-gray-400 hidden lg:flex">
+                    ${ticker.highPrice.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 8,
+                    })}
+                  </div>
+                  <div className="py-3 px-4 flex items-center justify-center text-gray-400 hidden lg:flex">
+                    ${ticker.lowPrice.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 8,
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
