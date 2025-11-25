@@ -205,6 +205,7 @@ describe('adaptBinanceTickerStream', () => {
 
     expect(결과).toEqual({
       symbol: 'BTCUSDT',
+      nameKO: '비트코인', // JSON 파일에서 가져온 한국어 이름
       price: 50000.5,
       priceChange: 1000.5,
       priceChangePercent: 2.08,

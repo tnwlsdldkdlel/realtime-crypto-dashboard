@@ -12,14 +12,6 @@ const coinNameCache = new Map<string, string>();
 const COINGECKO_API_BASE_URL = 'https://api.coingecko.com/api/v3';
 
 /**
- * 심볼에서 기본 코인 심볼 추출
- * 예: BTCUSDT -> btc, ETHUSDT -> eth
- */
-function extractBaseSymbol(symbol: string): string {
-  return symbol.replace('USDT', '').toLowerCase();
-}
-
-/**
  * CoinGecko API에서 모든 코인 목록 가져오기 (한 번만 호출)
  */
 async function loadCoinListFromAPI(): Promise<void> {
