@@ -18,6 +18,9 @@
 10. [React ref를 사용한 의존성 문제 해결](#10-react-ref를-사용한-의존성-문제-해결)
 11. [반응형 테이블 레이아웃 디자인](#11-반응형-테이블-레이아웃-디자인)
 12. [가격 변경 감지 및 애니메이션 스로틀링](#12-가격-변경-감지-및-애니메이션-스로틀링)
+13. [Zustand Persist Middleware를 활용한 영구 저장](#13-zustand-persist-middleware를-활용한-영구-저장)
+14. [디바운스 패턴을 활용한 WebSocket 재구독 최적화](#14-디바운스-패턴을-활용한-websocket-재구독-최적화)
+15. [동적 WebSocket 구독 및 대규모 변경 감지](#15-동적-websocket-구독-및-대규모-변경-감지)
 
 ---
 
@@ -1031,6 +1034,339 @@ setHighlightedSymbols((prev) => {
 
 ---
 
+## 13. Zustand Persist Middleware를 활용한 영구 저장
+
+**위치**: `stores/favoriteStore.ts`
+
+### 핵심 개념
+
+Zustand의 `persist` 미들웨어를 사용하여 클라이언트 사이드 상태를 localStorage에 자동으로 저장하고 복원합니다. 페이지를 새로고침하거나 다시 방문해도 사용자의 즐겨찾기 목록이 유지됩니다.
+
+### 구현 코드
+
+```typescript
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+interface FavoriteStore {
+  favorites: string[];
+  addFavorite: (symbol: string) => void;
+  removeFavorite: (symbol: string) => void;
+  toggleFavorite: (symbol: string) => void;
+  isFavorite: (symbol: string) => boolean;
+}
+
+export const useFavoriteStore = create<FavoriteStore>()(
+  persist(
+    (set, get) => ({
+      favorites: [],
+
+      addFavorite: (symbol: string) =>
+        set((state) => ({
+          // Set을 사용하여 중복 제거
+          favorites: [...new Set([...state.favorites, symbol])],
+        })),
+
+      removeFavorite: (symbol: string) =>
+        set((state) => ({
+          favorites: state.favorites.filter((s) => s !== symbol),
+        })),
+
+      toggleFavorite: (symbol: string) => {
+        const { isFavorite, addFavorite, removeFavorite } = get();
+        if (isFavorite(symbol)) {
+          removeFavorite(symbol);
+        } else {
+          addFavorite(symbol);
+        }
+      },
+
+      isFavorite: (symbol: string) => get().favorites.includes(symbol),
+    }),
+    {
+      name: 'crypto-favorites-storage', // localStorage 키 이름
+    }
+  )
+);
+```
+
+### 학습 가치
+
+- **자동 영구 저장**: 상태 변경 시 자동으로 localStorage에 저장
+- **자동 복원**: 페이지 로드 시 localStorage에서 자동으로 복원
+- **중복 제거**: Set을 활용하여 중복된 즐겨찾기 방지
+- **타입 안정성**: TypeScript로 안전한 상태 관리
+- **간단한 API**: 복잡한 설정 없이 바로 사용 가능
+
+### Persist Middleware 동작 방식
+
+1. **저장**: 상태가 변경될 때마다 자동으로 localStorage에 저장
+2. **복원**: 스토어 초기화 시 localStorage에서 데이터를 읽어와 상태 복원
+3. **직렬화**: JSON.stringify/parse를 자동으로 처리
+4. **동기화**: 여러 탭 간 상태 동기화 가능 (옵션)
+
+### 실무 적용
+
+- 사용자 설정 저장 (테마, 언어 등)
+- 장바구니 데이터
+- 즐겨찾기/북마크
+- 폼 데이터 임시 저장
+- 사용자 선호도 저장
+
+### 주의사항
+
+1. **용량 제한**: localStorage는 약 5-10MB 제한
+2. **동기 작업**: localStorage는 동기 작업이므로 대용량 데이터는 주의
+3. **보안**: 민감한 정보는 저장하지 않음
+4. **직렬화**: 함수나 클래스 인스턴스는 저장 불가
+
+---
+
+## 14. 디바운스 패턴을 활용한 WebSocket 재구독 최적화
+
+**위치**: `components/CoinListClient.tsx`
+
+### 핵심 개념
+
+사용자가 빠르게 여러 코인을 즐겨찾기로 추가/제거할 때, 각 변경마다 WebSocket을 재구독하는 것은 비효율적입니다. 디바운스 패턴을 사용하여 연속된 변경을 하나로 묶어 마지막 변경 후 일정 시간(300ms)이 지난 후에만 WebSocket을 재구독합니다.
+
+### 구현 코드
+
+```typescript
+// 디바운스된 심볼 목록 (WebSocket 재구독 최적화)
+const [debouncedSymbols, setDebouncedSymbols] = useState<string[]>(allSymbols);
+const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+useEffect(() => {
+  // 이전 타이머 클리어
+  if (debounceTimerRef.current) {
+    clearTimeout(debounceTimerRef.current);
+  }
+
+  // 300ms 후 업데이트
+  debounceTimerRef.current = setTimeout(() => {
+    setDebouncedSymbols(allSymbols);
+    debounceTimerRef.current = null;
+  }, 300);
+
+  // 클린업: 컴포넌트 언마운트 또는 allSymbols 변경 시 이전 타이머 제거
+  return () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  };
+}, [allSymbols]);
+
+// 디바운스된 심볼을 WebSocket 구독에 사용
+const symbols = debouncedSymbols;
+```
+
+### 동작 흐름
+
+```
+사용자 액션: 즐겨찾기 추가/제거
+    ↓
+allSymbols 변경 (즉시)
+    ↓
+디바운스 타이머 시작 (300ms)
+    ↓
+[300ms 내 추가 변경 발생 시]
+    ↓
+이전 타이머 취소 → 새 타이머 시작
+    ↓
+[300ms 동안 변경 없음]
+    ↓
+debouncedSymbols 업데이트
+    ↓
+WebSocket 재구독 (한 번만 실행)
+```
+
+### 학습 가치
+
+- **성능 최적화**: 연속된 변경을 하나로 묶어 불필요한 재구독 방지
+- **서버 부하 감소**: WebSocket 재연결 횟수 최소화
+- **사용자 경험**: 빠른 연속 클릭에도 안정적인 동작
+- **리소스 효율**: 네트워크 요청 최소화
+
+### 디바운스 vs 스로틀 비교
+
+| 패턴 | 동작 방식 | 사용 시기 |
+| :--- | :--- | :--- |
+| **디바운스** | 마지막 호출 후 일정 시간 지연 후 실행 | 검색 입력, 즐겨찾기 변경 |
+| **스로틀** | 일정 시간마다 최대 한 번 실행 | 스크롤 이벤트, 리사이즈 이벤트 |
+
+### 실무 적용
+
+- 검색 자동완성 (입력 완료 후 검색)
+- 폼 검증 (입력 완료 후 검증)
+- WebSocket 재구독
+- API 호출 최적화
+- 창 크기 조정 이벤트
+
+### 주의사항
+
+1. **타이머 클리어**: 컴포넌트 언마운트 시 반드시 타이머 클리어
+2. **간격 조정**: 너무 짧으면 효과 없음, 너무 길면 반응 느림 (300ms 권장)
+3. **useRef 사용**: 타이머 ID를 ref에 저장하여 리렌더링 방지
+
+---
+
+## 15. 동적 WebSocket 구독 및 대규모 변경 감지
+
+**위치**: `hooks/useBinanceWebSocket.ts` + `lib/websocket/binanceWebSocket.ts`
+
+### 핵심 개념
+
+사용자가 즐겨찾기를 변경할 때마다 WebSocket 구독을 동적으로 변경해야 합니다. 소규모 변경(1-2개 추가/제거)은 차등 구독으로 처리하고, 대규모 변경(50% 이상 변경)은 전체 재구독으로 처리하여 효율성을 높입니다.
+
+### 구현 코드
+
+#### 1. 대규모 변경 감지 로직
+
+```typescript
+// hooks/useBinanceWebSocket.ts
+const previousSymbolsRef = useRef<string[]>([]);
+
+useEffect(() => {
+  const currentSymbols = symbols;
+  const previousSymbols = previousSymbolsRef.current;
+
+  // 대규모 변경 감지
+  const isMajorChange =
+    previousSymbols.length === 0 || // 첫 구독
+    currentSymbols.length === 0 || // 모두 해제
+    // 변경 비율이 50% 이상이면 대규모 변경으로 간주
+    Math.abs(previousSymbols.length - currentSymbols.length) /
+      Math.max(previousSymbols.length, 1) > 0.5 ||
+    // 공통 심볼이 50% 미만이면 대규모 변경
+    previousSymbols.filter((sym) => currentSymbols.includes(sym)).length /
+      Math.max(previousSymbols.length, currentSymbols.length) < 0.5;
+
+  if (isMajorChange) {
+    // 대규모 변경: 전체 재구독 (한 번만 재연결)
+    if (currentSymbols.length > 0) {
+      client.updateSubscription(currentSymbols, 'ticker');
+    } else {
+      client.disconnect();
+    }
+  } else {
+    // 소규모 변경: 차등 구독
+    // 이전 구독 해제
+    const symbolsToUnsubscribe = previousSymbols.filter(
+      (sym) => !currentSymbols.includes(sym)
+    );
+    if (symbolsToUnsubscribe.length > 0) {
+      client.unsubscribe(symbolsToUnsubscribe, 'ticker');
+    }
+
+    // 새 구독 추가
+    const symbolsToSubscribe = currentSymbols.filter(
+      (sym) => !previousSymbols.includes(sym)
+    );
+    if (symbolsToSubscribe.length > 0) {
+      client.subscribe(symbolsToSubscribe, 'ticker');
+    }
+  }
+
+  previousSymbolsRef.current = currentSymbols;
+}, [symbols]);
+```
+
+#### 2. 전체 재구독 메서드
+
+```typescript
+// lib/websocket/binanceWebSocket.ts
+updateSubscription(symbols: string[], type: StreamType): void {
+  const streams = symbols.map((symbol) => {
+    const symbolLower = symbol.toLowerCase();
+    if (type === 'ticker') {
+      return `${symbolLower}@ticker`;
+    } else {
+      return `${symbolLower}@kline_1m`;
+    }
+  });
+
+  // 기존 구독 모두 해제 (내부 상태만 정리)
+  this.subscribedStreams.clear();
+  
+  // 새 구독으로 설정
+  streams.forEach((stream) => this.subscribedStreams.add(stream));
+
+  // 심볼이 없으면 연결 해제
+  if (this.subscribedStreams.size === 0) {
+    this.disconnect();
+    return;
+  }
+
+  // 한 번만 재연결 (연결 끊김 최소화)
+  if (this.ws?.readyState === WebSocket.OPEN) {
+    this.reconnect();
+  } else {
+    this.connect();
+  }
+}
+```
+
+### 변경 감지 전략
+
+#### 대규모 변경 (전체 재구독)
+- 첫 구독
+- 모든 구독 해제
+- 변경 비율 50% 이상
+- 공통 심볼 50% 미만
+
+#### 소규모 변경 (차등 구독)
+- 1-2개 추가/제거
+- 변경 비율 50% 미만
+- 공통 심볼 50% 이상
+
+### 학습 가치
+
+- **효율적인 구독 관리**: 변경 규모에 따라 최적의 전략 선택
+- **연결 안정성**: 대규모 변경 시 한 번만 재연결하여 연결 끊김 최소화
+- **성능 최적화**: 소규모 변경은 차등 구독으로 빠른 처리
+- **이전 상태 추적**: useRef를 사용하여 이전 구독 목록 추적
+
+### 시나리오별 동작
+
+#### 시나리오 1: 즐겨찾기 1개 추가
+```
+이전: [BTCUSDT, ETHUSDT]
+현재: [BTCUSDT, ETHUSDT, SOLUSDT]
+→ 소규모 변경: SOLUSDT만 구독 추가
+```
+
+#### 시나리오 2: 전체 → 즐겨찾기로 전환
+```
+이전: [100개 코인]
+현재: [BTCUSDT] (1개)
+→ 대규모 변경: 전체 재구독
+```
+
+#### 시나리오 3: 즐겨찾기 1개 제거
+```
+이전: [BTCUSDT, ETHUSDT, SOLUSDT]
+현재: [BTCUSDT, ETHUSDT]
+→ 소규모 변경: SOLUSDT만 구독 해제
+```
+
+### 실무 적용
+
+- 실시간 데이터 구독 관리
+- 동적 필터링 (카테고리 변경)
+- 사용자 그룹별 데이터 구독
+- 대시보드 위젯 추가/제거
+
+### 주의사항
+
+1. **이전 상태 추적**: useRef를 사용하여 리렌더링 없이 이전 상태 추적
+2. **임계값 조정**: 50% 임계값은 프로젝트에 맞게 조정 가능
+3. **연결 상태 확인**: WebSocket 연결 상태를 확인하여 적절한 처리
+4. **클린업**: 컴포넌트 언마운트 시 구독 해제
+
+---
+
 ## 🎯 실무 적용 시나리오
 
 ### 시나리오 1: 실시간 주식 대시보드
@@ -1055,6 +1391,12 @@ setHighlightedSymbols((prev) => {
 - **가격 변경 감지**: useRef로 이전 값 추적하여 변경 감지
 - **애니메이션 스로틀링**: 100ms 간격 제한으로 과도한 애니메이션 방지
 
+### 시나리오 5: 즐겨찾기 기능
+- **Zustand Persist**: localStorage에 즐겨찾기 자동 저장 및 복원
+- **디바운스 패턴**: 연속된 즐겨찾기 변경을 하나로 묶어 WebSocket 재구독 최적화
+- **동적 구독 관리**: 대규모 변경은 전체 재구독, 소규모 변경은 차등 구독
+- **이전 상태 추적**: useRef로 이전 구독 목록 추적하여 효율적인 변경 감지
+
 ---
 
 ## 📖 추가 학습 자료
@@ -1074,12 +1416,12 @@ setHighlightedSymbols((prev) => {
 
 ## 💡 핵심 요약
 
-1. **성능 최적화**: 배치 업데이트, Map 데이터 구조, ref를 통한 의존성 최적화, 애니메이션 스로틀링
-2. **안정성**: 지수 백오프, Rate Limit 처리, 디바운스, WebSocket 재연결
+1. **성능 최적화**: 배치 업데이트, Map 데이터 구조, ref를 통한 의존성 최적화, 애니메이션 스로틀링, 디바운스 패턴
+2. **안정성**: 지수 백오프, Rate Limit 처리, 디바운스, WebSocket 재연결, 동적 구독 관리
 3. **유지보수성**: 어댑터 패턴, 리포지토리 패턴, 커스텀 훅 추상화
-4. **사용자 경험**: 반응형 디자인, Server Components, 실시간 업데이트, 가격 변경 하이라이트
-5. **최신 기술**: Next.js Server Components, TypeScript, Tailwind CSS
-6. **상태 관리**: Set과 Map을 활용한 복합 상태 관리, 이전 값 추적 패턴
+4. **사용자 경험**: 반응형 디자인, Server Components, 실시간 업데이트, 가격 변경 하이라이트, 영구 저장
+5. **최신 기술**: Next.js Server Components, TypeScript, Tailwind CSS, Zustand Persist
+6. **상태 관리**: Set과 Map을 활용한 복합 상태 관리, 이전 값 추적 패턴, localStorage 영구 저장
 
 이러한 패턴들을 이해하고 적용하면, 고성능이고 유지보수하기 쉬운 애플리케이션을 구축할 수 있습니다.
 
