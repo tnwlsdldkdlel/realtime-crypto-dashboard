@@ -23,7 +23,7 @@ export default function Header() {
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Link href="/" className="flex items-center space-x-3">
+            <Link href="/" className="flex items-center space-x-3 cursor-pointer">
               <h1 className="text-2xl font-bold text-white">
                 실시간 암호화폐 대시보드
               </h1>
@@ -35,7 +35,7 @@ export default function Header() {
           <nav className="hidden md:flex items-center space-x-6">
             <Link
               href="/"
-              className={`transition-colors ${
+              className={`transition-colors cursor-pointer ${
                 isActive('/') && pathname !== '/favorites' && pathname !== '/chart'
                   ? 'text-white font-semibold'
                   : 'text-gray-300 hover:text-white'
@@ -45,7 +45,7 @@ export default function Header() {
             </Link>
             <Link
               href="/chart"
-              className={`transition-colors ${
+              className={`transition-colors cursor-pointer ${
                 isActive('/chart')
                   ? 'text-white font-semibold'
                   : 'text-gray-300 hover:text-white'
@@ -55,7 +55,7 @@ export default function Header() {
             </Link>
             <Link
               href="/favorites"
-              className={`transition-colors ${
+              className={`transition-colors cursor-pointer ${
                 isActive('/favorites')
                   ? 'text-white font-semibold'
                   : 'text-gray-300 hover:text-white'

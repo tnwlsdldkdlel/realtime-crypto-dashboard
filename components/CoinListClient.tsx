@@ -430,7 +430,7 @@ export default function CoinListClient({
             <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
               <button
                 onClick={() => handleSort('symbol')}
-                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors cursor-pointer"
               >
                 심볼
                 {sortField === 'symbol' && (
@@ -446,7 +446,7 @@ export default function CoinListClient({
             <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
               <button
                 onClick={() => handleSort('price')}
-                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors cursor-pointer"
               >
                 현재가
                 {sortField === 'price' && (
@@ -459,7 +459,7 @@ export default function CoinListClient({
             <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400">
               <button
                 onClick={() => handleSort('priceChangePercent')}
-                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors cursor-pointer"
               >
                 24h 변동률
                 {sortField === 'priceChangePercent' && (
@@ -472,7 +472,7 @@ export default function CoinListClient({
             <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400 hidden md:block">
               <button
                 onClick={() => handleSort('volume')}
-                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors cursor-pointer"
               >
                 거래량
                 {sortField === 'volume' && (
@@ -485,7 +485,7 @@ export default function CoinListClient({
             <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:block">
               <button
                 onClick={() => handleSort('highPrice')}
-                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors cursor-pointer"
               >
                 고가
                 {sortField === 'highPrice' && (
@@ -498,7 +498,7 @@ export default function CoinListClient({
             <div className="text-center py-3 px-4 text-sm font-semibold text-gray-400 hidden lg:block">
               <button
                 onClick={() => handleSort('lowPrice')}
-                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors"
+                className="flex items-center justify-center gap-1 w-full hover:text-white transition-colors cursor-pointer"
               >
                 저가
                 {sortField === 'lowPrice' && (

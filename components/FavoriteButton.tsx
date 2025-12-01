@@ -21,7 +21,7 @@ export default function FavoriteButton({ symbol, className = '' }: FavoriteButto
         e.stopPropagation();
         toggleFavorite(symbol);
       }}
-      className={`transition-colors ${className}`}
+      className={`transition-colors cursor-pointer ${className}`}
       aria-label={favorite ? '즐겨찾기 제거' : '즐겨찾기 추가'}
       title={favorite ? '즐겨찾기 제거' : '즐겨찾기 추가'}
     >

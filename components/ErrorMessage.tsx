@@ -38,7 +38,7 @@ export default function ErrorMessage({
           {onRetry && (
             <button
               onClick={onRetry}
-              className="mt-4 px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors text-sm font-medium"
+              className="mt-4 px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors text-sm font-medium cursor-pointer"
             >
               다시 시도
             </button>
