@@ -33,6 +33,7 @@ export class BinanceWebSocketClient {
   private ws: WebSocket | null = null;
   private status: WebSocketStatus = 'disconnected';
   private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10; // 최대 재연결 시도 횟수
   private reconnectTimer: NodeJS.Timeout | null = null;
   private subscribedStreams: Set<string> = new Set();
   private config: BinanceWebSocketConfig;
@@ -65,7 +66,7 @@ export class BinanceWebSocketClient {
         // WebSocket이 아직 유효한 경우에만 상태 변경
         if (this.ws && this.config) {
           this.setStatus('connected');
-          this.reconnectAttempts = 0;
+          this.reconnectAttempts = 0; // 연결 성공 시 재연결 시도 횟수 리셋
         }
       };
 
@@ -282,6 +283,13 @@ export class BinanceWebSocketClient {
       return;
     }
 
+    // 최대 재연결 시도 횟수 확인
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.setStatus('error');
+      this.config.onError?.(new Error(`최대 재연결 시도 횟수(${this.maxReconnectAttempts}회)에 도달했습니다. 수동으로 재연결해주세요.`));
+      return;
+    }
+
     const delay = getReconnectDelay(this.reconnectAttempts);
     this.reconnectAttempts++;
 
@@ -292,6 +300,27 @@ export class BinanceWebSocketClient {
         this.connect();
       }
     }, delay);
+  }
+
+  /**
+   * 재연결 시도 횟수 리셋 (수동 재연결 시 사용)
+   */
+  resetReconnectAttempts(): void {
+    this.reconnectAttempts = 0;
+  }
+
+  /**
+   * 재연결 시도 횟수 조회
+   */
+  getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
+  /**
+   * 최대 재연결 시도 횟수 도달 여부
+   */
+  hasReachedMaxAttempts(): boolean {
+    return this.reconnectAttempts >= this.maxReconnectAttempts;
   }
 
   /**

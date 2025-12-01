@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTickerStore } from '@/stores/tickerStore';
 import { useFavoriteStore } from '@/stores/favoriteStore';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
+import { usePollingMode } from '@/hooks/usePollingMode';
 import type { Ticker } from '@/types';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorMessage from './ErrorMessage';
@@ -109,7 +110,12 @@ export default function CoinListClient({
   const symbols = debouncedSymbols;
 
   // WebSocket 연결 및 구독
-  const { status: wsStatus } = useBinanceWebSocket({
+  const { 
+    status: wsStatus, 
+    reconnectAttempts, 
+    hasReachedMaxAttempts,
+    connect: reconnectWebSocket 
+  } = useBinanceWebSocket({
     symbols,
     onStatusChange: (status) => {
       if (status === 'connected') {
@@ -122,6 +128,23 @@ export default function CoinListClient({
       console.error('WebSocket error:', error);
     },
     autoConnect: true,
+  });
+
+  // Degraded Mode: WebSocket 실패 시 REST 폴링 모드 전환
+  const shouldUsePolling = hasReachedMaxAttempts || wsStatus === 'error';
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
+  const { isPolling: isPollingMode } = usePollingMode({
+    symbols,
+    interval: 5000, // 5초 간격 (Rate Limit 고려)
+    enabled: shouldUsePolling && symbols.length > 0,
+    onError: (error) => {
+      console.error('Polling mode error:', error);
+      if (error.message.includes('Rate Limit')) {
+        setRateLimitError('요청이 지연되고 있습니다. 캐시된 데이터를 사용합니다.');
+      } else {
+        setRateLimitError(null);
+      }
+    },
   });
 
   /**
@@ -214,19 +237,35 @@ export default function CoinListClient({
   }, [highlightedSymbols, highlightDirections]);
 
   // WebSocket 상태 표시용 텍스트
-  const wsStatusText = {
-    disconnected: '연결 끊김',
-    connecting: '연결 중...',
-    connected: '실시간 업데이트 중',
-    error: '연결 오류',
-  }[wsStatus];
+  const wsStatusText = useMemo(() => {
+    if (isPollingMode) {
+      return '폴링 모드 (5초 간격)';
+    }
+    if (hasReachedMaxAttempts) {
+      return `연결 실패 (${reconnectAttempts}/${10}회 시도)`;
+    }
+    if (wsStatus === 'connecting' && reconnectAttempts > 0) {
+      return `재연결 중... (${reconnectAttempts}/${10}회)`;
+    }
+    return {
+      disconnected: '연결 끊김',
+      connecting: '연결 중...',
+      connected: '실시간 업데이트 중',
+      error: '연결 오류',
+    }[wsStatus];
+  }, [wsStatus, reconnectAttempts, hasReachedMaxAttempts, isPollingMode]);
 
-  const wsStatusColor = {
-    disconnected: 'text-gray-500',
-    connecting: 'text-yellow-400',
-    connected: 'text-green-400',
-    error: 'text-red-400',
-  }[wsStatus];
+  const wsStatusColor = useMemo(() => {
+    if (isPollingMode) {
+      return 'text-orange-400'; // 폴링 모드는 주황색
+    }
+    return {
+      disconnected: 'text-gray-500',
+      connecting: 'text-yellow-400',
+      connected: 'text-green-400',
+      error: hasReachedMaxAttempts ? 'text-red-500' : 'text-red-400',
+    }[wsStatus];
+  }, [wsStatus, hasReachedMaxAttempts, isPollingMode]);
 
   /**
    * 정렬 및 필터링된 티커 배열
@@ -364,6 +403,19 @@ export default function CoinListClient({
 
   return (
     <div>
+      {/* Rate Limit 경고 메시지 */}
+      {rateLimitError && (
+        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-yellow-400">{rateLimitError}</p>
+          <button
+            onClick={() => setRateLimitError(null)}
+            className="text-yellow-400 hover:text-yellow-300 cursor-pointer"
+            title="닫기"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4 flex-wrap">
           <p className="text-gray-300">
@@ -379,9 +431,27 @@ export default function CoinListClient({
               즐겨찾기: <span className="font-semibold text-yellow-400">{favorites.length}개</span>
             </p>
           )}
-          <p className={`text-sm ${wsStatusColor}`}>
-            {wsStatusText}
-          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              {isPollingMode && (
+                <span className="px-2 py-1 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30">
+                  폴링 모드
+                </span>
+              )}
+              <p className={`text-sm ${wsStatusColor}`}>
+                {wsStatusText}
+              </p>
+            </div>
+            {(hasReachedMaxAttempts || isPollingMode) && (
+              <button
+                onClick={() => reconnectWebSocket()}
+                className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
+                title="WebSocket 재연결 시도 (성공 시 폴링 모드 자동 종료)"
+              >
+                재연결
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4">
           {/* 검색 입력 */}

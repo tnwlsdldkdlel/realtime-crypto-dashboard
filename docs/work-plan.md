@@ -163,22 +163,22 @@
 #### 6.1 WebSocket 에러 핸들링
 - [x] 연결 실패 감지 및 UI 표시 (기본 구현 완료)
 - [x] 지수 백오프 재연결 로직 (BinanceWebSocketClient에 구현됨)
-- [ ] 재연결 시도 횟수 제한 및 사용자 알림
+- [x] 재연결 시도 횟수 제한 및 사용자 알림
 
 #### 6.2 Degraded Mode 구현
-- [ ] WebSocket 실패 시 REST 폴링 모드 전환
-- [ ] 폴링 간격 설정 (예: 5초)
-- [ ] 모드 전환 UI 표시
+- [x] WebSocket 실패 시 REST 폴링 모드 전환
+- [x] 폴링 간격 설정 (예: 5초)
+- [x] 모드 전환 UI 표시
 
 #### 6.3 REST API Rate Limit 처리
 - [x] 429 에러 감지 및 `Retry-After` 헤더 처리 (API Routes에 구현)
 - [x] 스로틀링 구현 (utils/throttle.ts)
-- [ ] 캐시된 데이터 우선 사용 로직
-- [ ] "요청 지연" 메시지 및 재시도 버튼
+- [x] 캐시된 데이터 우선 사용 로직
+- [x] "요청 지연" 메시지 및 재시도 버튼
 
 #### 6.4 전역 에러 바운더리
-- [ ] React Error Boundary 구현
-- [ ] 에러 로깅 및 사용자 친화적 메시지
+- [x] React Error Boundary 구현
+- [x] 에러 로깅 및 사용자 친화적 메시지
 
 **예상 소요 시간**: 2일
 

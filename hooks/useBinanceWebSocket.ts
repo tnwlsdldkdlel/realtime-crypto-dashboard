@@ -42,6 +42,7 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
   const { updateTicker } = useTickerStore();
   const clientRef = useRef<BinanceWebSocketClient | null>(null);
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
   // 핸들러를 ref로 저장하여 의존성 문제 해결
   const handlersRef = useRef({
@@ -80,6 +81,10 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
       },
       onStatusChange: (newStatus) => {
         setStatus(newStatus);
+        // 재연결 시도 횟수 업데이트
+        if (clientRef.current) {
+          setReconnectAttempts(clientRef.current.getReconnectAttempts());
+        }
         handlersRef.current.onStatusChange?.(newStatus);
       },
       onError: (error) => {
@@ -94,6 +99,8 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
         clientRef.current.disconnect();
         clientRef.current = null;
       }
+      // previousSymbols 초기화 (컴포넌트 언마운트 시)
+      previousSymbolsRef.current = [];
     };
   }, [autoConnect]);
 
@@ -113,7 +120,12 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
     const currentSymbols = symbols;
 
     // 심볼 목록이 변경되지 않았으면 스킵
+    // 단, 클라이언트가 연결되지 않은 상태이고 심볼이 있으면 연결 시도
+    const isClientDisconnected = client.getStatus() === 'disconnected';
+    const shouldConnect = isClientDisconnected && currentSymbols.length > 0;
+
     if (
+      !shouldConnect &&
       previousSymbols.length === currentSymbols.length &&
       previousSymbols.every((sym, idx) => sym === currentSymbols[idx])
     ) {
@@ -136,8 +148,8 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
           Math.max(previousSymbols.length, currentSymbols.length) <
           0.5);
 
-    if (isMajorChange) {
-      // 대규모 변경: 전체 재구독 (한 번만 재연결)
+    if (isMajorChange || shouldConnect) {
+      // 대규모 변경 또는 재연결 필요: 전체 재구독 (한 번만 재연결)
       if (currentSymbols.length > 0) {
         client.updateSubscription(currentSymbols, 'ticker');
       } else {
@@ -188,6 +200,11 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
    */
   const connect = useCallback(() => {
     if (clientRef.current) {
+      // 수동 재연결 시 재연결 시도 횟수 리셋
+      if (clientRef.current.hasReachedMaxAttempts()) {
+        clientRef.current.resetReconnectAttempts();
+        setReconnectAttempts(0);
+      }
       clientRef.current.connect();
     }
   }, []);
@@ -213,6 +230,8 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
     disconnect,
     getStatus,
     status,
+    reconnectAttempts,
+    hasReachedMaxAttempts: clientRef.current?.hasReachedMaxAttempts() ?? false,
   };
 }
 

@@ -14,6 +14,7 @@
 8. [TypeScript 타입 불일치: BinanceKlineResponse](#8-typescript-타입-불일치-binanceklineresponse)
 9. [React Hook 의존성 배열 경고 (차트 구현)](#9-react-hook-의존성-배열-경고-차트-구현)
 10. [Next.js 모듈 해석 오류: 상대 경로 vs 절대 경로](#10-nextjs-모듈-해석-오류-상대-경로-vs-절대-경로)
+11. [페이지 간 이동 시 WebSocket 재연결 실패](#11-페이지-간-이동-시-websocket-재연결-실패)
 
 ---
 
@@ -887,6 +888,151 @@ import ChartClient from '@/app/chart/ChartClient';
 
 ---
 
+## 11. 페이지 간 이동 시 WebSocket 재연결 실패
+
+### 문제 상황
+
+코인목록 페이지 → 차트 페이지 → 코인목록 페이지로 이동할 때 WebSocket 연결이 끊어지고 재연결되지 않는 문제가 발생했습니다.
+
+### 원인 분석
+
+페이지 이동 시 다음과 같은 순서로 문제가 발생했습니다:
+
+1. **코인목록 페이지**: `CoinListClient`가 `useBinanceWebSocket` 훅을 사용하여 ticker 스트림 구독
+2. **차트 페이지 이동**: `CoinListClient` 언마운트 → `useBinanceWebSocket`의 cleanup 실행 → WebSocket disconnect
+3. **차트 페이지**: `ChartClient`가 자체 `BinanceWebSocketClient` 인스턴스로 kline 스트림 구독
+4. **코인목록 페이지 복귀**: `CoinListClient` 재마운트 → 클라이언트는 재생성되지만 **자동 연결이 되지 않음**
+
+#### 문제점
+
+1. **`previousSymbolsRef` 초기화 누락**: 컴포넌트 언마운트 시 `previousSymbolsRef`가 초기화되지 않아 재마운트 시 첫 구독으로 인식되지 않음
+2. **disconnected 상태 감지 부재**: 클라이언트가 `disconnected` 상태일 때 심볼이 있어도 자동 연결 로직이 없음
+3. **심볼 변경 감지 로직 한계**: 심볼 목록이 변경되지 않았다고 판단하여 연결 시도를 하지 않음
+
+```typescript
+// ❌ 문제가 있던 코드
+useEffect(() => {
+  const client = clientRef.current;
+  if (!client || !autoConnect) return;
+
+  const previousSymbols = previousSymbolsRef.current;
+  const currentSymbols = symbols;
+
+  // 심볼 목록이 변경되지 않았으면 스킵
+  // → 재마운트 시 previousSymbols가 이전 값으로 남아있어 연결되지 않음
+  if (
+    previousSymbols.length === currentSymbols.length &&
+    previousSymbols.every((sym, idx) => sym === currentSymbols[idx])
+  ) {
+    return; // 연결 시도 안 함
+  }
+  // ...
+}, [symbols, autoConnect]);
+```
+
+### 해결 방법
+
+**언마운트 시 상태 초기화 및 disconnected 상태 감지 로직 추가**했습니다.
+
+#### 1. 언마운트 시 `previousSymbolsRef` 초기화
+
+```typescript
+// hooks/useBinanceWebSocket.ts
+useEffect(() => {
+  if (!autoConnect) return;
+
+  // 클라이언트 생성
+  clientRef.current = new BinanceWebSocketClient({...});
+
+  return () => {
+    // 클린업: 연결 해제
+    if (clientRef.current) {
+      clientRef.current.disconnect();
+      clientRef.current = null;
+    }
+    // previousSymbols 초기화 (컴포넌트 언마운트 시)
+    previousSymbolsRef.current = []; // ✅ 추가
+  };
+}, [autoConnect]);
+```
+
+#### 2. disconnected 상태 감지 및 자동 연결 로직 추가
+
+```typescript
+// hooks/useBinanceWebSocket.ts
+useEffect(() => {
+  const client = clientRef.current;
+  if (!client || !autoConnect) return;
+
+  const previousSymbols = previousSymbolsRef.current;
+  const currentSymbols = symbols;
+
+  // 클라이언트가 연결되지 않은 상태이고 심볼이 있으면 연결 시도
+  const isClientDisconnected = client.getStatus() === 'disconnected';
+  const shouldConnect = isClientDisconnected && currentSymbols.length > 0; // ✅ 추가
+
+  // 심볼 목록이 변경되지 않았으면 스킵
+  // 단, 재연결이 필요한 경우는 예외
+  if (
+    !shouldConnect && // ✅ 추가
+    previousSymbols.length === currentSymbols.length &&
+    previousSymbols.every((sym, idx) => sym === currentSymbols[idx])
+  ) {
+    return;
+  }
+
+  // 대규모 변경 감지
+  const isMajorChange =
+    previousSymbols.length === 0 || // 첫 구독
+    currentSymbols.length === 0 || // 모두 해제
+    // ... 기존 로직
+
+  // 대규모 변경 또는 재연결 필요 시 전체 재구독
+  if (isMajorChange || shouldConnect) { // ✅ shouldConnect 추가
+    if (currentSymbols.length > 0) {
+      client.updateSubscription(currentSymbols, 'ticker');
+    }
+  } else {
+    // 소규모 변경: 차등 구독
+    // ... 기존 로직
+  }
+
+  previousSymbolsRef.current = currentSymbols;
+}, [symbols, autoConnect]);
+```
+
+### 동작 흐름
+
+#### 수정 전 (문제)
+1. 코인목록 페이지: WebSocket 연결 및 ticker 스트림 구독
+2. 차트 페이지 이동: CoinListClient 언마운트 → WebSocket disconnect
+3. 코인목록 페이지 복귀: CoinListClient 재마운트 → 클라이언트 재생성
+4. **문제**: `previousSymbolsRef`가 이전 값으로 남아있어 심볼 변경으로 인식하지 않음 → 연결 안 됨
+
+#### 수정 후 (해결)
+1. 코인목록 페이지: WebSocket 연결 및 ticker 스트림 구독
+2. 차트 페이지 이동: CoinListClient 언마운트 → WebSocket disconnect, **`previousSymbolsRef` 초기화**
+3. 코인목록 페이지 복귀: CoinListClient 재마운트 → 클라이언트 재생성
+4. **해결**: 
+   - `previousSymbols.length === 0`이므로 첫 구독으로 인식
+   - 또는 `shouldConnect`가 true가 되어 자동 연결
+   - `updateSubscription` 호출로 WebSocket 자동 연결
+
+### 결과
+
+- ✅ 페이지 이동 후 WebSocket이 자동으로 재연결됨
+- ✅ 코인목록 → 차트 → 코인목록 이동 시 연결이 끊기지 않음
+- ✅ 컴포넌트 재마운트 시 상태가 올바르게 초기화됨
+- ✅ 사용자 경험 개선 (연결 상태가 안정적으로 유지됨)
+
+### 참고 사항
+
+- 컴포넌트 언마운트 시 ref 초기화가 중요함
+- disconnected 상태 감지 로직으로 재연결 보장
+- `updateSubscription` 메서드가 연결되지 않은 상태에서도 `connect()`를 호출하므로 자동 연결됨
+
+---
+
 ## 해결 방법 요약
 
 | 이슈 | 핵심 해결 방법 | 주요 기술 |
@@ -901,6 +1047,7 @@ import ChartClient from '@/app/chart/ChartClient';
 | TypeScript 타입 불일치 | `BinanceKlineResponse` 타입 정확히 정의 | 타입 안정성 |
 | React Hook 의존성 경고 | 함수 정의 순서 조정 및 useCallback 적용 | React Hooks, 의존성 관리 |
 | Next.js 모듈 해석 오류 | 상대 경로 → 절대 경로(@ alias) 변경 | 모듈 해석, TypeScript 설정 |
+| 페이지 간 이동 시 WebSocket 재연결 실패 | 언마운트 시 상태 초기화 및 disconnected 상태 감지 | 컴포넌트 생명주기, WebSocket 재연결 |
 
 ---
 
