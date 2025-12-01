@@ -89,9 +89,10 @@ const { status: wsStatus } = useBinanceWebSocket({ symbols });
 ```
 
 **포인트**
-1. `favorites` 배열이 바뀌어도 300ms 동안 더 변화가 없을 때만 WebSocket에 전달
-2. `useRef`에 타이머 ID 저장 → 리렌더링과 무관하게 관리
-3. 클린업에서 반드시 `clearTimeout()` 호출해 메모리 누수 방지
+1. `favorites` 배열(즐겨찾기 코인 심볼 목록)이 변경되면 → `allSymbols`가 재계산되고 → `useEffect`가 트리거됨
+2. `allSymbols`가 연속으로 변경되어도 300ms 동안 더 변화가 없을 때만 `debouncedSymbols`가 업데이트되어 WebSocket에 전달
+3. `useRef`에 타이머 ID 저장 → 리렌더링과 무관하게 관리
+4. 클린업에서 반드시 `clearTimeout()` 호출해 메모리 누수 방지
 
 ---
 
@@ -99,28 +100,9 @@ const { status: wsStatus } = useBinanceWebSocket({ symbols });
 
 ### 4.1 디바운스 도입 전의 문제점
 
-#### 문제 1: 즐겨찾기 연속 클릭 시 WebSocket 재연결 폭증
+#### 핵심 문제: WebSocket 재구독/재연결 문제
 
-**시나리오**: 사용자가 즐겨찾기 버튼을 빠르게 5번 클릭
-
-**[디바운스 없을 때]**
-```
-클릭 1: BTC 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 1회)
-클릭 2: ETH 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 2회)
-클릭 3: SOL 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 3회)
-클릭 4: ADA 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 4회)
-클릭 5: DOT 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 5회)
-
-결과: 5초 만에 WebSocket이 5번 재연결됨
-```
-
-**발생한 문제들:**
-- ⚠️ **연결 끊김 체감**: 사용자가 "연결 끊김" 상태를 자주 목격
-- ⚠️ **서버 부하 증가**: Binance 서버에 불필요한 연결 요청 폭증
-- ⚠️ **데이터 손실**: 재연결 중 가격 업데이트를 놓칠 수 있음
-- ⚠️ **배터리 소모**: 모바일 기기에서 네트워크 작업이 과도하게 발생
-
-#### 문제 2: Binance WebSocket의 구조적 제약
+**근본 원인: Binance WebSocket의 구조적 제약**
 
 Binance WebSocket API는 **Combined Streams** 방식을 사용합니다:
 
@@ -136,9 +118,24 @@ wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker
 1. 기존 WebSocket 연결 해제 (`disconnect()`)
 2. 새로운 스트림 목록으로 재연결 (`connect()`)
 
-이 과정이 반복되면 사용자 경험이 크게 저하됩니다.
+**문제 증상들:**
 
-#### 문제 3: 이중 재연결 문제
+**증상 1: 즐겨찾기 연속 클릭 시 재연결 폭증**
+
+시나리오: 사용자가 즐겨찾기 버튼을 빠르게 5번 클릭
+
+**[디바운스 없을 때]**
+```
+클릭 1: BTC 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 1회)
+클릭 2: ETH 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 2회)
+클릭 3: SOL 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 3회)
+클릭 4: ADA 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 4회)
+클릭 5: DOT 추가 → favorites 변경 → allSymbols 변경 → WebSocket 재구독 (재연결 5회)
+
+결과: 5초 만에 WebSocket이 5번 재연결됨
+```
+
+**증상 2: 이중 재연결 문제**
 
 대규모 변경 시나리오 (예: 전체 코인 100개 → 즐겨찾기 1개):
 
@@ -149,6 +146,12 @@ subscribe(1개) → reconnect()     // 2차 재연결
 
 // 결과: 불필요한 재연결이 2번 발생
 ```
+
+**발생한 문제들:**
+- ⚠️ **연결 끊김 체감**: 사용자가 "연결 끊김" 상태를 자주 목격
+- ⚠️ **서버 부하 증가**: Binance 서버에 불필요한 연결 요청 폭증
+- ⚠️ **데이터 손실**: 재연결 중 가격 업데이트를 놓칠 수 있음
+- ⚠️ **배터리 소모**: 모바일 기기에서 네트워크 작업이 과도하게 발생
 
 ### 4.2 디바운스 도입 후 개선
 
