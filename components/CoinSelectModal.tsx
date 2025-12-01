@@ -23,7 +23,7 @@ export default function CoinSelectModal({
   coins,
   selectedSymbol,
 }: CoinSelectModalProps) {
-  const { favorites, isFavorite } = useFavoriteStore();
+  const { isFavorite } = useFavoriteStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [displayCount, setDisplayCount] = useState(50); // 초기 표시 개수
@@ -33,12 +33,16 @@ export default function CoinSelectModal({
 
   // 모달이 열릴 때 검색 입력에 포커스 및 초기화
   useEffect(() => {
-    if (isOpen && searchInputRef.current) {
+    if (!isOpen) return;
+    
+    if (searchInputRef.current) {
       searchInputRef.current.focus();
-      setSearchQuery('');
-      setHighlightedIndex(0);
-      setDisplayCount(50); // 초기 표시 개수로 리셋
     }
+    setSearchQuery('');
+    setHighlightedIndex(0);
+    setDisplayCount(50);
+    // 모달이 열릴 때만 초기화하므로 isOpen만 의존성으로 사용
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // 필터링 및 정렬된 코인 목록

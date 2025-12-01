@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { GET } from '../route';
-import { NextResponse } from 'next/server';
+import type { BinanceKlineResponse } from '@/types/binance';
 
 // fetch 모킹
 global.fetch = vi.fn();
@@ -24,7 +24,7 @@ describe('GET /api/klines', () => {
   });
 
   it('올바른 파라미터로 Kline 데이터를 반환해야 함', async () => {
-    const mockKlineData: number[][] = [
+    const mockKlineData: BinanceKlineResponse[] = [
       [
         1609459200000, // openTime
         '48000.00', // open
@@ -41,7 +41,7 @@ describe('GET /api/klines', () => {
       ],
     ];
 
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
       headers: new Headers(),
@@ -65,9 +65,9 @@ describe('GET /api/klines', () => {
   });
 
   it('기본 interval과 limit을 사용해야 함', async () => {
-    const mockKlineData: number[][] = [];
+    const mockKlineData: BinanceKlineResponse[] = [];
 
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
       headers: new Headers(),
@@ -88,9 +88,9 @@ describe('GET /api/klines', () => {
   });
 
   it('startTime과 endTime 파라미터를 지원해야 함', async () => {
-    const mockKlineData: number[][] = [];
+    const mockKlineData: BinanceKlineResponse[] = [];
 
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
       headers: new Headers(),
@@ -114,14 +114,14 @@ describe('GET /api/klines', () => {
 
   it('429 Rate Limit 에러를 재시도해야 함', async () => {
     // 첫 번째 호출: 429 에러
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as Mock).mockResolvedValueOnce({
       ok: false,
       status: 429,
       headers: new Headers({ 'Retry-After': '1' }),
     });
 
     // 두 번째 호출: 성공
-    (global.fetch as any).mockResolvedValueOnce({
+    (global.fetch as Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
       headers: new Headers(),
@@ -136,7 +136,7 @@ describe('GET /api/klines', () => {
   });
 
   it('재시도 후에도 실패하면 500 에러를 반환해야 함', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Network error'));
+    (global.fetch as Mock).mockRejectedValue(new Error('Network error'));
 
     const request = new Request('http://localhost:3003/api/klines?symbol=BTCUSDT');
     const response = await GET(request);
@@ -150,7 +150,7 @@ describe('GET /api/klines', () => {
     const intervals = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
     for (const interval of intervals) {
-      (global.fetch as any).mockResolvedValueOnce({
+      (global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
         headers: new Headers(),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import CandlestickChart, { CandlestickData } from '@/components/CandlestickChart';
 import { Time } from 'lightweight-charts';
 import type { Ticker } from '@/types';
@@ -41,11 +41,6 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
   const [isCoinModalOpen, setIsCoinModalOpen] = useState(false);
   const wsClientRef = useRef<BinanceWebSocketClient | null>(null);
   const chartDataRef = useRef<CandlestickData[]>([]);
-
-  // 초기 차트 데이터 로드
-  useEffect(() => {
-    loadChartData(selectedSymbol, selectedInterval);
-  }, [selectedSymbol, selectedInterval]);
 
   /**
    * Kline을 CandlestickData로 변환 (Kline 타입 사용)
@@ -162,7 +157,45 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
     return filledData;
   };
 
-  const loadChartData = async (symbol: string, interval: string) => {
+  /**
+   * WebSocket 설정 및 Kline 스트림 구독
+   */
+  const setupWebSocket = useCallback((symbol: string) => {
+    // 기존 WebSocket 연결 해제
+    if (wsClientRef.current) {
+      wsClientRef.current.disconnect();
+      wsClientRef.current = null;
+    }
+
+    // 새 WebSocket 클라이언트 생성
+    wsClientRef.current = new BinanceWebSocketClient({
+      onKlineMessage: (message: BinanceKlineStreamMessage) => {
+        try {
+          // 선택된 심볼과 일치하는지 확인
+          if (message.data.s === symbol) {
+            const kline = adaptBinanceKlineStream(message);
+            updateChartDataWithRealtimeKline(kline);
+          }
+        } catch (error) {
+          console.error('Failed to process kline message:', error);
+        }
+      },
+      onStatusChange: (status) => {
+        if (status === 'error') {
+          console.error('WebSocket connection error');
+        }
+      },
+      onError: (error) => {
+        console.error('WebSocket error:', error);
+      },
+    });
+
+    // Kline 스트림 구독 (1분봉)
+    wsClientRef.current.subscribe([symbol], 'kline');
+    wsClientRef.current.connect();
+  }, []);
+
+  const loadChartData = useCallback(async (symbol: string, interval: string) => {
     setLoading(true);
     setError(null);
 
@@ -205,45 +238,12 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setupWebSocket]);
 
-  /**
-   * WebSocket 설정 및 Kline 스트림 구독
-   */
-  const setupWebSocket = (symbol: string) => {
-    // 기존 WebSocket 연결 해제
-    if (wsClientRef.current) {
-      wsClientRef.current.disconnect();
-      wsClientRef.current = null;
-    }
-
-    // 새 WebSocket 클라이언트 생성
-    wsClientRef.current = new BinanceWebSocketClient({
-      onKlineMessage: (message: BinanceKlineStreamMessage) => {
-        try {
-          // 선택된 심볼과 일치하는지 확인
-          if (message.data.s === symbol) {
-            const kline = adaptBinanceKlineStream(message);
-            updateChartDataWithRealtimeKline(kline);
-          }
-        } catch (error) {
-          console.error('Failed to process kline message:', error);
-        }
-      },
-      onStatusChange: (status) => {
-        if (status === 'error') {
-          console.error('WebSocket connection error');
-        }
-      },
-      onError: (error) => {
-        console.error('WebSocket error:', error);
-      },
-    });
-
-    // Kline 스트림 구독 (1분봉)
-    wsClientRef.current.subscribe([symbol], 'kline');
-    wsClientRef.current.connect();
-  };
+  // 초기 차트 데이터 로드
+  useEffect(() => {
+    loadChartData(selectedSymbol, selectedInterval);
+  }, [selectedSymbol, selectedInterval, loadChartData]);
 
   // 컴포넌트 언마운트 시 WebSocket 정리
   useEffect(() => {

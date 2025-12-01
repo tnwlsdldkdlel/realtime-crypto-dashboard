@@ -123,6 +123,7 @@ export default function CandlestickChart({
         seriesRef.current.setData([]);
       }
     }
+    // data는 의도적으로 의존성 배열에 포함 (데이터 변경 시 업데이트)
   }, [data]);
 
   // 시간대 표시 텍스트
