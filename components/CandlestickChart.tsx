@@ -86,11 +86,6 @@ export default function CandlestickChart({
     chartRef.current = chart;
     seriesRef.current = candlestickSeriesInstance;
 
-    // 데이터 설정
-    if (data.length > 0) {
-      candlestickSeriesInstance.setData(data);
-    }
-
     // 리사이즈 핸들러
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
