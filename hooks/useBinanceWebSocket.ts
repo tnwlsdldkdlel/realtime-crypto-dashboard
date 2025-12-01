@@ -187,6 +187,7 @@ export function useBinanceWebSocket(options: UseBinanceWebSocketOptions = {}) {
     }
 
     // 현재 심볼을 이전 심볼로 저장
+    // eslint-disable-next-line react-hooks/immutability
     previousSymbolsRef.current = currentSymbols;
 
     return () => {

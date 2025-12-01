@@ -41,8 +41,6 @@ export default function CoinSelectModal({
     setSearchQuery('');
     setHighlightedIndex(0);
     setDisplayCount(50);
-    // 모달이 열릴 때만 초기화하므로 isOpen만 의존성으로 사용
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // 필터링 및 정렬된 코인 목록
