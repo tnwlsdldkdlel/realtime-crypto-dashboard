@@ -59,7 +59,7 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
    * 실시간 Kline 데이터를 차트 데이터에 병합
    * openTime 기준으로 기존 캔들 업데이트 또는 새 캔들 추가
    */
-  const updateChartDataWithRealtimeKline = (kline: { openTime: number; open: number; high: number; low: number; close: number }) => {
+  const updateChartDataWithRealtimeKline = useCallback((kline: { openTime: number; open: number; high: number; low: number; close: number }) => {
     setChartData((prevData) => {
       const newData = [...prevData];
       const klineTime = kline.openTime / 1000;
@@ -81,7 +81,7 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
       chartDataRef.current = newData;
       return newData;
     });
-  };
+  }, []);
 
   /**
    * 데이터 간격 감지 및 메우기
@@ -193,7 +193,7 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
     // Kline 스트림 구독 (1분봉)
     wsClientRef.current.subscribe([symbol], 'kline');
     wsClientRef.current.connect();
-  }, []);
+  }, [updateChartDataWithRealtimeKline]);
 
   const loadChartData = useCallback(async (symbol: string, interval: string) => {
     setLoading(true);
