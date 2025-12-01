@@ -10,6 +10,10 @@
 4. [Ref 접근 오류 (렌더링 중 Ref 접근)](#4-ref-접근-오류-렌더링-중-ref-접근)
 5. [페이지 이동 시 WebSocket 정리 오류](#5-페이지-이동-시-websocket-정리-오류)
 6. [한국어 코인 이름: JSON → 하이브리드 방식 전환](#6-한국어-코인-이름-json--하이브리드-방식-전환)
+7. [Lightweight Charts v5 API 변경 문제](#7-lightweight-charts-v5-api-변경-문제)
+8. [TypeScript 타입 불일치: BinanceKlineResponse](#8-typescript-타입-불일치-binanceklineresponse)
+9. [React Hook 의존성 배열 경고 (차트 구현)](#9-react-hook-의존성-배열-경고-차트-구현)
+10. [Next.js 모듈 해석 오류: 상대 경로 vs 절대 경로](#10-nextjs-모듈-해석-오류-상대-경로-vs-절대-경로)
 
 ---
 
@@ -605,6 +609,298 @@ storeSetState((state) => {
 - 현재 구현은 CoinGecko의 `/coins/list` 엔드포인트를 사용하여 **영어 이름**을 가져옵니다
 - 한국어 이름을 가져오려면 각 코인의 상세 정보(`/coins/{id}?localization=true`)를 조회해야 하지만, 100개 코인을 개별 호출하면 Rate Limit 문제가 발생할 수 있습니다
 - 따라서 현재는 영어 이름도 표시하는 방식을 채택했습니다 (한국어 이름이 없으면 영어 이름 표시)
+
+---
+
+## 7. Lightweight Charts v5 API 변경 문제
+
+### 문제 상황
+
+빌드 시 TypeScript 오류가 발생하고, 런타임에서도 차트가 렌더링되지 않는 문제가 발생했습니다.
+
+```
+Type error: Property 'addCandlestickSeries' does not exist on type 'IChartApi'.
+```
+
+### 원인 분석
+
+Lightweight Charts 라이브러리가 v4에서 v5로 업그레이드되면서 API가 변경되었습니다.
+
+1. **v4 방식 (deprecated)**:
+   ```typescript
+   const series = chart.addCandlestickSeries({
+     upColor: '#26a69a',
+     downColor: '#ef5350',
+   });
+   ```
+
+2. **v5 방식 (새로운 API)**:
+   ```typescript
+   import { CandlestickSeries } from 'lightweight-charts';
+   
+   const series = chart.addSeries(CandlestickSeries, {
+     upColor: '#26a69a',
+     downColor: '#ef5350',
+   });
+   ```
+
+### 해결 방법
+
+**v5 API로 마이그레이션**했습니다.
+
+```typescript
+// components/CandlestickChart.tsx
+import { createChart, IChartApi, ISeriesApi, CandlestickData, CandlestickSeries } from 'lightweight-charts';
+
+// v5 방식으로 변경
+const candlestickSeriesInstance = chart.addSeries(CandlestickSeries, {
+  upColor: '#26a69a',
+  downColor: '#ef5350',
+  borderVisible: false,
+  wickUpColor: '#26a69a',
+  wickDownColor: '#ef5350',
+});
+```
+
+### 결과
+
+- ✅ TypeScript 오류 해결
+- ✅ 런타임에서 정상적으로 차트 렌더링
+- ✅ Lightweight Charts v5 API 준수
+
+### 참고 사항
+
+- 라이브러리 업그레이드 시 API 변경사항을 반드시 확인해야 함
+- `@ts-ignore`로 임시 우회하는 것보다 올바른 API 사용이 중요
+
+---
+
+## 8. TypeScript 타입 불일치: BinanceKlineResponse
+
+### 문제 상황
+
+`convertKlineToCandlestick` 함수에서 타입 오류가 발생했습니다.
+
+```typescript
+// ❌ 잘못된 타입 정의
+export function convertKlineToCandlestick(kline: number[]): CandlestickData {
+  return {
+    time: (kline[0] / 1000) as Time,
+    open: parseFloat(kline[1]), // 타입 오류: number에 parseFloat 사용
+    // ...
+  };
+}
+```
+
+### 원인 분석
+
+Binance API의 Kline 응답은 **배열의 각 요소가 서로 다른 타입**을 가집니다:
+
+```typescript
+// 실제 BinanceKlineResponse 타입
+export type BinanceKlineResponse = [
+  number,  // openTime
+  string,  // open
+  string,  // high
+  string,  // low
+  string,  // close
+  string,  // volume
+  number,  // closeTime
+  string,  // quoteAssetVolume
+  number,  // numberOfTrades
+  string,  // takerBuyBaseAssetVolume
+  string,  // takerBuyQuoteAssetVolume
+  string   // ignore
+];
+```
+
+`number[]`로 정의하면 모든 요소가 `number`로 추론되어 `parseFloat`를 사용할 수 없습니다.
+
+### 해결 방법
+
+**정확한 타입 정의 사용** 및 **타입 가드 추가**했습니다.
+
+```typescript
+// ✅ 올바른 타입 정의
+import type { BinanceKlineResponse } from '@/types/binance';
+
+export function convertKlineToCandlestick(kline: BinanceKlineResponse): CandlestickData {
+  return {
+    time: (kline[0] / 1000) as Time, // number
+    open: parseFloat(kline[1] as string), // string → number 변환
+    high: parseFloat(kline[2] as string),
+    low: parseFloat(kline[3] as string),
+    close: parseFloat(kline[4] as string),
+  };
+}
+```
+
+### 결과
+
+- ✅ TypeScript 타입 오류 해결
+- ✅ 타입 안정성 확보
+- ✅ 런타임 오류 방지
+
+### 참고 사항
+
+- 외부 API 응답 타입을 정확히 정의하는 것이 중요
+- `number[]`와 같은 일반적인 타입보다 구체적인 타입 사용 권장
+
+---
+
+## 9. React Hook 의존성 배열 경고 (차트 구현)
+
+### 문제 상황
+
+차트 구현 중 여러 React Hook 의존성 배열 관련 경고가 발생했습니다.
+
+1. **useEffect 내부 setState 호출**:
+   ```
+   React Hook useEffect has a missing dependency: 'data'
+   ```
+
+2. **useCallback 의존성 누락**:
+   ```
+   React Hook useCallback has a missing dependency: 'updateChartDataWithRealtimeKline'
+   ```
+
+3. **함수 호출 순서 문제**:
+   ```
+   'loadChartData' 변수가 할당되기 전에 사용되었습니다
+   ```
+
+### 원인 분석
+
+1. **함수 호이스팅 문제**: `useEffect`에서 `loadChartData`를 호출하지만, 함수 정의가 아래에 있어서 호이스팅되지 않음
+2. **의존성 체인**: `loadChartData` → `setupWebSocket` → `updateChartDataWithRealtimeKline` 순서로 의존성이 연결됨
+3. **useCallback 누락**: 함수들이 매 렌더링마다 재생성되어 의존성 배열이 계속 변경됨
+
+### 해결 방법
+
+**함수 정의 순서 조정 및 useCallback 적용**했습니다.
+
+#### 1. 함수 정의 순서 조정
+
+```typescript
+// app/chart/ChartClient.tsx
+
+// 1단계: 유틸리티 함수들 (의존성 없음)
+const convertKlineToCandlestickFromKline = (kline: {...}) => { ... };
+
+// 2단계: 상태 업데이트 함수 (useCallback으로 감싸기)
+const updateChartDataWithRealtimeKline = useCallback((kline: {...}) => {
+  setChartData((prevData) => { ... });
+}, []);
+
+// 3단계: WebSocket 설정 (updateChartDataWithRealtimeKline 의존)
+const setupWebSocket = useCallback((symbol: string) => {
+  // ...
+  updateChartDataWithRealtimeKline(kline);
+}, [updateChartDataWithRealtimeKline]);
+
+// 4단계: 데이터 로드 (setupWebSocket 의존)
+const loadChartData = useCallback(async (symbol: string, interval: string) => {
+  // ...
+  setupWebSocket(symbol);
+}, [setupWebSocket]);
+
+// 5단계: useEffect (loadChartData 의존)
+useEffect(() => {
+  loadChartData(selectedSymbol, selectedInterval);
+}, [selectedSymbol, selectedInterval, loadChartData]);
+```
+
+#### 2. 모달 초기화 로직 개선
+
+```typescript
+// components/CoinSelectModal.tsx
+useEffect(() => {
+  if (!isOpen) return;
+  
+  if (searchInputRef.current) {
+    searchInputRef.current.focus();
+  }
+  setSearchQuery('');
+  setHighlightedIndex(0);
+  setDisplayCount(50);
+  // 모달이 열릴 때만 초기화하므로 isOpen만 의존성으로 사용
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [isOpen]);
+```
+
+### 결과
+
+- ✅ 모든 React Hook 의존성 경고 해결
+- ✅ 함수 호출 순서 문제 해결
+- ✅ 불필요한 재렌더링 방지
+- ✅ 코드 안정성 향상
+
+### 참고 사항
+
+- 함수 정의 순서가 중요: 의존성이 있는 함수는 의존되는 함수보다 아래에 정의
+- `useCallback`으로 함수를 메모이제이션하여 의존성 배열 안정화
+- 모달 초기화 같은 경우는 의도적으로 의존성을 제한할 수 있음
+
+---
+
+## 10. Next.js 모듈 해석 오류: 상대 경로 vs 절대 경로
+
+### 문제 상황
+
+TypeScript 컴파일러가 상대 경로로 import한 모듈을 찾지 못하는 오류가 발생했습니다.
+
+```
+'./ChartClient' 모듈 또는 해당 형식 선언을 찾을 수 없습니다.
+```
+
+### 원인 분석
+
+Next.js의 TypeScript 설정과 모듈 해석 방식에 문제가 있었습니다.
+
+1. **상대 경로 문제**: `'./ChartClient'`가 때때로 인식되지 않음
+2. **TypeScript 설정**: `tsconfig.json`의 `paths` 설정과 충돌 가능
+3. **Next.js 모듈 해석**: Next.js의 내부 모듈 해석 로직과 TypeScript의 해석 방식이 다를 수 있음
+
+### 해결 방법
+
+**절대 경로(@ alias) 사용**으로 변경했습니다.
+
+```typescript
+// ❌ 상대 경로 (문제 발생)
+import ChartClient from './ChartClient';
+
+// ✅ 절대 경로 (해결)
+import ChartClient from '@/app/chart/ChartClient';
+```
+
+### 결과
+
+- ✅ TypeScript 모듈 해석 오류 해결
+- ✅ 빌드 성공
+- ✅ 일관된 import 경로 사용
+
+### 참고 사항
+
+- Next.js 프로젝트에서는 `@/` alias를 사용하는 것이 권장됨
+- 상대 경로보다 절대 경로가 유지보수에 유리함
+- `tsconfig.json`의 `paths` 설정을 확인하여 alias가 올바르게 설정되어 있는지 확인
+
+---
+
+## 해결 방법 요약
+
+| 이슈 | 핵심 해결 방법 | 주요 기술 |
+|------|---------------|----------|
+| WebSocket 연결 끊김 | 대규모 변경 감지 및 전체 재구독 | `updateSubscription` 메서드 |
+| WebSocket 재생성 | `useRef`를 통한 인스턴스 관리 | React Hooks, 클로저 해결 |
+| 조건부 Hook 호출 | Hook을 컴포넌트 최상단으로 이동 | React Hooks Rules |
+| 렌더링 중 Ref 접근 | State와 Ref 분리 관리 | React State vs Ref |
+| 페이지 이동 시 WebSocket 오류 | 이벤트 리스너 먼저 제거 및 config 유효성 체크 | WebSocket 생명주기 관리 |
+| 한국어 코인 이름 일치율 저하 | JSON + CoinGecko API 하이브리드 방식 | 배치 처리, 메모리 캐싱 |
+| Lightweight Charts v5 API 변경 | `addCandlestickSeries` → `addSeries(CandlestickSeries, ...)` | 라이브러리 마이그레이션 |
+| TypeScript 타입 불일치 | `BinanceKlineResponse` 타입 정확히 정의 | 타입 안정성 |
+| React Hook 의존성 경고 | 함수 정의 순서 조정 및 useCallback 적용 | React Hooks, 의존성 관리 |
+| Next.js 모듈 해석 오류 | 상대 경로 → 절대 경로(@ alias) 변경 | 모듈 해석, TypeScript 설정 |
 
 ---
 
