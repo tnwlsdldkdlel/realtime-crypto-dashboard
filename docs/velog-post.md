@@ -36,10 +36,24 @@
 
 #### 1. Zustand를 선택한 이유
 
-고빈도 실시간 데이터를 처리해야 하는 상황에서, Redux나 Context API는 성능 이슈가 있었습니다. Zustand는:
+고빈도 실시간 데이터를 처리해야 하는 상황에서, Redux나 Context API는 다음과 같은 성능 이슈가 예상되었습니다:
+
+**Context API의 문제점:**
+- Context 값 변경 시 구독하는 모든 컴포넌트가 리렌더링됨
+- 초당 수백 개의 업데이트 시 불필요한 리렌더링 폭증
+- Context 분할해도 관리 복잡도 증가
+
+**Redux의 문제점:**
+- Action → Reducer → Store 업데이트 파이프라인의 오버헤드
+- React 렌더링 사이클과 밀접하게 연결되어 배치 업데이트가 어려움
+- 보일러플레이트 코드가 많음
+
+**Zustand의 장점:**
 - React 렌더링과 완전히 분리된 상태 관리
+- `requestAnimationFrame`을 활용한 배치 업데이트 가능
 - 간단한 API와 낮은 보일러플레이트
 - Map 기반 데이터 구조로 O(1) 조회 성능
+- 선택적 구독으로 불필요한 리렌더링 최소화
 
 #### 2. TanStack Virtual을 선택한 이유
 
