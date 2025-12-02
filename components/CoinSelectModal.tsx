@@ -36,12 +36,9 @@ export default function CoinSelectModal({
   useEffect(() => {
     // 모달이 닫혔다가 열릴 때만 초기화
     if (isOpen && !prevIsOpenRef.current) {
-      // 모달 열릴 때 상태 초기화는 의도된 동작이므로 허용
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // 모달 열릴 때 상태 초기화 (조건문 내부이므로 안전)
       setSearchQuery('');
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHighlightedIndex(0);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDisplayCount(50);
       
       if (searchInputRef.current) {

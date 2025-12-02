@@ -366,6 +366,8 @@ export default function CoinListClient({
   const COLUMN_WIDTHS = [48, 120, 150, 120, 150, 150, 150] as const;
 
   // 가상화 설정
+  // TanStack Virtual의 useVirtualizer는 함수를 반환하므로 메모이제이션 불가 (의도된 동작)
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: tickerArray.length,
     getScrollElement: () => parentRef.current,
