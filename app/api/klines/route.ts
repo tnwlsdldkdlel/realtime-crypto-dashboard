@@ -17,6 +17,7 @@ async function fetchWithRetry(
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; RealtimeCryptoDashboard/1.0)',
         },
       });
 
@@ -25,6 +26,11 @@ async function fetchWithRetry(
         const delay = retryAfter ? parseInt(retryAfter) * 1000 : retryDelay;
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
+      }
+
+      // 451 Unavailable For Legal Reasons 처리
+      if (response.status === 451) {
+        throw new Error('Binance API is not available in this region. Please check your Vercel deployment region settings.');
       }
 
       if (!response.ok) {
@@ -76,8 +82,24 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error('Error fetching klines:', error);
+    
+    // 451 오류인 경우 명시적인 메시지 반환
+    if (error instanceof Error && error.message.includes('451')) {
+      return NextResponse.json(
+        { 
+          error: 'Binance API is not available in this region',
+          message: 'The Binance API is blocked in the deployment region. Please configure Vercel to use a supported region (e.g., US, EU).',
+          status: 451
+        },
+        { status: 503 } // Service Unavailable로 반환
+      );
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to fetch klines' },
+      { 
+        error: 'Failed to fetch klines',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }

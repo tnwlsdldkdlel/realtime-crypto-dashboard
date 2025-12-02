@@ -23,6 +23,7 @@ async function fetchWithRetry(
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; RealtimeCryptoDashboard/1.0)',
         },
         // Server Component에서 사용하므로 캐시 설정
         cache: 'no-store',
@@ -34,6 +35,11 @@ async function fetchWithRetry(
         const delay = retryAfter ? parseInt(retryAfter) * 1000 : retryDelay;
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
+      }
+
+      // 451 Unavailable For Legal Reasons 처리
+      if (response.status === 451) {
+        throw new Error('Binance API is not available in this region. Please check your Vercel deployment region settings.');
       }
 
       if (!response.ok) {
