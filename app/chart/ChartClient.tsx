@@ -346,6 +346,7 @@ export default function ChartClient({ initialCoins }: ChartClientProps) {
 
       {/* 코인 선택 모달 */}
       <CoinSelectModal
+        key={isCoinModalOpen ? 'open' : 'closed'} // 모달이 열릴 때마다 리마운트하여 상태 초기화
         isOpen={isCoinModalOpen}
         onClose={() => setIsCoinModalOpen(false)}
         onSelect={(symbol) => {
