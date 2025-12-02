@@ -13,7 +13,9 @@ Next.js 기반 고성능 실시간 암호화폐 대시보드 애플리케이션�
 
 ### 🚀 Live Demo
 
-> **참고**: 현재 배포 준비 중입니다. 로컬에서 실행하려면 아래 [시작하기](#-시작하기) 섹션을 참조하세요.
+**프로덕션 사이트**: [https://realtime-crypto-dashboard-kwvh32aox-ohsujins-projects-f9745280.vercel.app](https://realtime-crypto-dashboard-kwvh32aox-ohsujins-projects-f9745280.vercel.app)
+
+> **참고**: 실시간 암호화폐 가격 정보를 확인할 수 있습니다. 로컬에서 실행하려면 아래 [시작하기](#-시작하기) 섹션을 참조하세요.
 
 ### 주요 특징
 
