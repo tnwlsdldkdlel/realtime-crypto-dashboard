@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { useFavoriteStore } from '@/stores/favoriteStore';
 
 interface FavoriteButtonProps {
@@ -9,8 +10,9 @@ interface FavoriteButtonProps {
 
 /**
  * 즐겨찾기 버튼 컴포넌트
+ * React.memo로 최적화: symbol과 className이 변경되지 않으면 리렌더링 방지
  */
-export default function FavoriteButton({ symbol, className = '' }: FavoriteButtonProps) {
+function FavoriteButton({ symbol, className = '' }: FavoriteButtonProps) {
   const { isFavorite, toggleFavorite } = useFavoriteStore();
 
   const favorite = isFavorite(symbol);
@@ -53,4 +55,6 @@ export default function FavoriteButton({ symbol, className = '' }: FavoriteButto
     </button>
   );
 }
+
+export default memo(FavoriteButton);
 

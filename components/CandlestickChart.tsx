@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, CandlestickSeries } from 'lightweight-charts';
 
 export interface CandlestickChartProps {
@@ -16,8 +16,9 @@ export type { CandlestickData };
 /**
  * 캔들스틱 차트 컴포넌트
  * Lightweight Charts를 사용하여 OHLCV 데이터를 시각화
+ * React.memo로 최적화: data, symbol, height, interval이 변경되지 않으면 리렌더링 방지
  */
-export default function CandlestickChart({
+function CandlestickChart({
   data,
   symbol = 'BTCUSDT',
   height = 500,
@@ -148,4 +149,6 @@ export default function CandlestickChart({
     </div>
   );
 }
+
+export default memo(CandlestickChart);
 

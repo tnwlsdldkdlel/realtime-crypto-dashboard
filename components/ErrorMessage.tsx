@@ -1,6 +1,9 @@
+import { memo } from 'react';
+
 /**
  * 에러 메시지 컴포넌트
  * 에러 발생 시 표시되는 메시지
+ * React.memo로 최적화: props가 변경되지 않으면 리렌더링 방지
  */
 
 interface ErrorMessageProps {
@@ -9,7 +12,7 @@ interface ErrorMessageProps {
   onRetry?: () => void;
 }
 
-export default function ErrorMessage({
+function ErrorMessage({
   title = '오류가 발생했습니다',
   message,
   onRetry,
@@ -48,4 +51,6 @@ export default function ErrorMessage({
     </div>
   );
 }
+
+export default memo(ErrorMessage);
 

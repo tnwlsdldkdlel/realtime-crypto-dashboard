@@ -1,6 +1,9 @@
+import { memo } from 'react';
+
 /**
  * 로딩 스피너 컴포넌트
  * 데이터 로딩 중 표시되는 스피너
+ * React.memo로 최적화: props가 변경되지 않으면 리렌더링 방지
  */
 
 interface LoadingSpinnerProps {
@@ -8,7 +11,7 @@ interface LoadingSpinnerProps {
   text?: string;
 }
 
-export default function LoadingSpinner({
+function LoadingSpinner({
   size = 'md',
   text = '데이터를 불러오는 중...',
 }: LoadingSpinnerProps) {
@@ -33,4 +36,6 @@ export default function LoadingSpinner({
     </div>
   );
 }
+
+export default memo(LoadingSpinner);
 

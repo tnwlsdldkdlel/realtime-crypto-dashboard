@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Header from "@/components/Header";
 import ErrorBoundaryWrapper from "@/components/ErrorBoundaryWrapper";
+import WebVitals from "@/components/WebVitals";
 
 export const metadata: Metadata = {
   title: "실시간 암호화폐 대시보드",
@@ -20,6 +21,7 @@ export default function RootLayout({
           <Header />
           {children}
         </ErrorBoundaryWrapper>
+        <WebVitals />
       </body>
     </html>
   );

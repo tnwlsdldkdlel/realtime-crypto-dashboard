@@ -63,6 +63,16 @@ export default function Header() {
             >
               즐겨찾기
             </Link>
+            <Link
+              href="/stats"
+              className={`transition-colors cursor-pointer ${
+                isActive('/stats')
+                  ? 'text-white font-semibold'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              성능 통계
+            </Link>
           </nav>
         </div>
       </div>
