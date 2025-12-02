@@ -3,6 +3,22 @@
 import { useEffect } from 'react';
 
 /**
+ * PerformanceEventTiming 타입 확장
+ */
+interface PerformanceEventTiming extends PerformanceEntry {
+  processingStart: number;
+  startTime: number;
+}
+
+/**
+ * LayoutShift 타입 확장
+ */
+interface LayoutShift extends PerformanceEntry {
+  value: number;
+  hadRecentInput: boolean;
+}
+
+/**
  * Web Vitals 측정 컴포넌트
  * Core Web Vitals (LCP, FID, CLS) 및 기타 성능 메트릭 측정
  */
@@ -35,8 +51,9 @@ export default function WebVitals() {
         try {
           const fidObserver = new PerformanceObserver((list) => {
             const entries = list.getEntries();
-            entries.forEach((entry: any) => {
-              const fid = entry.processingStart - entry.startTime;
+            entries.forEach((entry) => {
+              const fidEntry = entry as PerformanceEventTiming;
+              const fid = fidEntry.processingStart - fidEntry.startTime;
               console.log('[Web Vitals] FID:', fid, 'ms');
             });
           });
@@ -50,10 +67,11 @@ export default function WebVitals() {
         try {
           let clsValue = 0;
           const clsObserver = new PerformanceObserver((list) => {
-            const entries = list.getEntries() as any[];
+            const entries = list.getEntries();
             entries.forEach((entry) => {
-              if (!entry.hadRecentInput) {
-                clsValue += entry.value;
+              const clsEntry = entry as LayoutShift;
+              if (!clsEntry.hadRecentInput) {
+                clsValue += clsEntry.value;
               }
             });
             

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useBinanceWebSocket } from '@/hooks/useBinanceWebSocket';
 import { usePerformanceStats } from '@/hooks/usePerformanceStats';
 import { useTickerStore } from '@/stores/tickerStore';
@@ -28,6 +28,17 @@ export default function PerformanceStats({ subscribedSymbols }: PerformanceStats
     autoConnect: true, // 통계 페이지에서도 WebSocket 연결 필요
   });
 
+  // 현재 시간을 상태로 관리 (Date.now() 순수 함수 위반 방지)
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000); // 1초마다 업데이트
+    
+    return () => clearInterval(interval);
+  }, []);
+
   // WebSocket 상태 텍스트
   const wsStatusText = useMemo(() => {
     return {
@@ -54,9 +65,9 @@ export default function PerformanceStats({ subscribedSymbols }: PerformanceStats
   // 평균 업데이트 속도 계산
   const averageUpdatesPerSecond = useMemo(() => {
     if (stats.totalUpdates === 0 || !stats.lastUpdateTime) return 0;
-    const elapsedSeconds = (Date.now() - stats.lastUpdateTime) / 1000;
+    const elapsedSeconds = (currentTime - stats.lastUpdateTime) / 1000;
     return elapsedSeconds > 0 ? stats.totalUpdates / elapsedSeconds : 0;
-  }, [stats.totalUpdates, stats.lastUpdateTime]);
+  }, [stats.totalUpdates, stats.lastUpdateTime, currentTime]);
 
   return (
     <div className="w-full max-w-4xl mx-auto p-6">
@@ -122,7 +133,7 @@ export default function PerformanceStats({ subscribedSymbols }: PerformanceStats
           </div>
           <div className="text-xs text-gray-500 mt-1">
             {stats.lastUpdateTime 
-              ? `${Math.floor((Date.now() - stats.lastUpdateTime) / 1000)}초 전`
+              ? `${Math.floor((currentTime - stats.lastUpdateTime) / 1000)}초 전`
               : '데이터 없음'}
           </div>
         </div>
