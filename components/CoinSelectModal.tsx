@@ -39,11 +39,8 @@ export default function CoinSelectModal({
       searchInputRef.current.focus();
     }
     // 모달이 열릴 때만 초기화하므로 isOpen만 의존성으로 사용
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSearchQuery('');
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHighlightedIndex(0);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDisplayCount(50);
   }, [isOpen]);
 

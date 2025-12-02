@@ -143,7 +143,8 @@ describe('GET /api/klines', () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data).toEqual({ error: 'Failed to fetch klines' });
+    expect(data).toHaveProperty('error', 'Failed to fetch klines');
+    expect(data).toHaveProperty('message');
   });
 
   it('다양한 interval을 지원해야 함', async () => {
