@@ -30,18 +30,22 @@ export default function CoinSelectModal({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const prevIsOpenRef = useRef(isOpen);
 
   // 모달이 열릴 때 검색 입력에 포커스 및 초기화
   useEffect(() => {
-    if (!isOpen) return;
-    
-    if (searchInputRef.current) {
-      searchInputRef.current.focus();
+    // 모달이 닫혔다가 열릴 때만 초기화
+    if (isOpen && !prevIsOpenRef.current) {
+      setSearchQuery('');
+      setHighlightedIndex(0);
+      setDisplayCount(50);
+      
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
     }
-    // 모달이 열릴 때만 초기화하므로 isOpen만 의존성으로 사용
-    setSearchQuery('');
-    setHighlightedIndex(0);
-    setDisplayCount(50);
+    
+    prevIsOpenRef.current = isOpen;
   }, [isOpen]);
 
   // 필터링 및 정렬된 코인 목록
