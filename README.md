@@ -2,9 +2,18 @@
 
 Next.js 기반 고성능 실시간 암호화폐 대시보드 애플리케이션입니다.
 
+[![Next.js](https://img.shields.io/badge/Next.js-16.0.3-black)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19.2.0-blue)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
+[![Zustand](https://img.shields.io/badge/Zustand-5.0.8-purple)](https://zustand-demo.pmnd.rs/)
+
 ## 🎯 프로젝트 개요
 
 이 프로젝트는 Next.js의 서버 환경을 활용하여 실시간 데이터 처리, SSR/SSG 성능 최적화, 그리고 강건한 아키텍처를 입증하는 고성능 웹 애플리케이션입니다.
+
+### 🚀 Live Demo
+
+> **참고**: 현재 배포 준비 중입니다. 로컬에서 실행하려면 아래 [시작하기](#-시작하기) 섹션을 참조하세요.
 
 ### 주요 특징
 
@@ -105,6 +114,15 @@ npm start
 - **목록 가상화**: TanStack Virtual을 통한 대량 데이터 렌더링 최적화
 - **SSR/SSG**: 초기 데이터 서버 측 페칭으로 빠른 초기 로딩
 - **배치 업데이트**: 고빈도 메시지 그룹화로 CPU 부하 감소
+- **메모이제이션**: React.memo, useMemo, useCallback을 통한 리렌더링 최적화
+- **API 캐싱**: 중복 요청 방지 및 Rate Limit 대응
+
+### 5. 실시간 전략
+
+- **단일 연결, 다중 스트림**: 하나의 WebSocket 연결에 여러 심볼 구독
+- **지능형 구독 관리**: 변경 규모에 따른 최적 전략 선택 (대규모/소규모 변경)
+- **디바운스 재연결**: 연속 클릭 시 재연결 폭증 방지
+- **Degraded Mode**: WebSocket 실패 시 REST API 폴링으로 자동 전환
 
 ## 📊 주요 기능
 
@@ -124,14 +142,94 @@ npm start
 
 ## 🛡️ 강건성 및 에러 핸들링
 
-- **WebSocket 재연결**: 지수 백오프/지터 전략으로 자동 재연결
+- **WebSocket 재연결**: 지수 백오프/지터 전략으로 자동 재연결 (최대 10회 시도)
 - **Degraded Mode**: WebSocket 실패 시 REST 폴링으로 전환
 - **Rate Limit 처리**: `Retry-After` 헤더 감지 및 스로틀링
 - **에러 복구**: 사용자 친화적인 에러 메시지 및 재시도 기능
+- **React Error Boundary**: 전역 에러 처리 및 Fallback UI
+
+## 📈 성능 측정치
+
+### Core Web Vitals
+
+| 메트릭 | 측정값 | 목표 | 상태 |
+|--------|--------|------|------|
+| **FCP** | 210-250ms | < 1.8s | ✅ |
+| **LCP** | 330-370ms | < 2.5s | ✅ |
+| **CLS** | 0.013-0.021 | < 0.1 | ✅ |
+| **TTI** | 24.2s | < 3.8s | ⚠️ |
+| **TBT** | 1.0-1.1s | < 200ms | ⚠️ |
+
+### 실시간 업데이트 성능
+
+- **FPS**: 46-47 (목표: 60)
+- **렌더링 시간**: 21-22ms (목표: < 16ms)
+- **CPU 사용률**: 0% (목표: < 30%) ✅
+- **메모리 사용량**: 22-23MB (목표: < 100MB) ✅
+
+> **참고**: TTI와 TBT는 실시간 WebSocket 연결 및 데이터 처리로 인한 트레이드오프입니다. 자세한 내용은 [성능 분석 문서](./docs/performance.md)를 참조하세요.
+
+## 📸 주요 화면
+
+### 코인 목록 페이지
+- 실시간 가격 업데이트
+- 정렬 및 필터링
+- 즐겨찾기 관리
+- 가상화된 리스트 렌더링
+
+### 차트 페이지
+- 인터랙티브 캔들스틱 차트
+- 실시간 Kline 스트림 통합
+- 시간 간격 선택 (1m, 5m, 1h 등)
+- 데이터 Gap 자동 보완
+
+### 성능 통계 페이지
+- 초당 업데이트 수 (UPS)
+- 구독 중인 심볼 수
+- WebSocket 연결 상태
+- 실시간 성능 모니터링
 
 ## 📝 문서
 
-자세한 내용은 [`docs/prd.md`](./docs/prd.md)를 참조하세요.
+프로젝트의 상세한 기술 문서는 `docs/` 디렉토리에서 확인할 수 있습니다:
+
+- [제품 요구사항 정의서](./docs/prd.md) - 프로젝트 요구사항 및 기능 명세
+- [아키텍처 문서](./docs/architecture.md) - 시스템 아키텍처 및 설계 패턴
+- [실시간 전략 문서](./docs/realtime-strategy.md) - WebSocket 및 실시간 데이터 처리 전략
+- [API 문서](./docs/api.md) - REST API 및 WebSocket API 명세
+- [성능 분석 문서](./docs/performance.md) - 성능 측정 결과 및 최적화 전략
+- [이슈 및 해결책](./docs/issues-and-solutions.md) - 개발 중 발생한 기술 이슈 및 해결 방법
+- [학습 포인트](./docs/points/learning-points.md) - 프로젝트 진행 중 학습한 기술 및 패턴
+
+## 🧪 테스트
+
+```bash
+# 단위 테스트 실행
+npm run test
+
+# 테스트 UI 실행
+npm run test:ui
+
+# 기능 테스트 실행
+npm run test:functional
+
+# 성능 테스트 실행
+npm run performance
+```
+
+## 📦 빌드
+
+```bash
+# 프로덕션 빌드
+npm run build
+
+# 빌드 결과 확인
+npm start
+```
+
+## 🤝 기여
+
+이 프로젝트는 포트폴리오 목적으로 제작되었습니다. 이슈나 제안사항이 있으시면 GitHub Issues를 통해 알려주세요.
 
 ## 📄 라이선스
 

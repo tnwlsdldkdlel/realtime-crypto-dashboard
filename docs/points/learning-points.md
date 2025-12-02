@@ -27,6 +27,10 @@
 19. [Intersection Observer를 활용한 무한 스크롤 구현](#19-intersection-observer를-활용한-무한-스크롤-구현)
 20. [Combobox/Modal UI 패턴: 검색 가능한 대용량 리스트 선택](#20-comboboxmodal-ui-패턴-검색-가능한-대용량-리스트-선택)
 21. [useCallback을 활용한 함수 메모이제이션 및 의존성 체인 관리](#21-usecallback을-활용한-함수-메모이제이션-및-의존성-체인-관리)
+22. [Degraded Mode (Graceful Degradation) 패턴](#22-degraded-mode-graceful-degradation-패턴)
+23. [API 응답 캐싱 전략 및 Rate Limit 대응](#23-api-응답-캐싱-전략-및-rate-limit-대응)
+24. [React Error Boundary를 활용한 전역 에러 처리](#24-react-error-boundary를-활용한-전역-에러-처리)
+25. [WebSocket 재연결 시도 횟수 제한 및 사용자 알림](#25-websocket-재연결-시도-횟수-제한-및-사용자-알림)
 
 ---
 
@@ -2231,6 +2235,787 @@ const setupWebSocket = useCallback(..., [updateChartData]);
 
 ---
 
+## 22. Degraded Mode (Graceful Degradation) 패턴
+
+**위치**: `hooks/usePollingMode.ts` + `components/CoinListClient.tsx`
+
+### 핵심 개념
+
+WebSocket 연결이 실패하거나 최대 재연결 시도 횟수에 도달했을 때, 실시간 기능을 포기하고 REST API 폴링 모드로 전환하여 기본 기능을 유지하는 패턴입니다. 사용자 경험을 최대한 보존하면서 시스템의 안정성을 확보합니다.
+
+### 구현 코드
+
+```typescript
+// hooks/usePollingMode.ts
+
+/**
+ * REST API 폴링 모드 훅
+ * WebSocket 실패 시 Degraded Mode로 전환하여 REST API로 주기적으로 데이터를 가져옴
+ */
+export function usePollingMode(options: UsePollingModeOptions) {
+  const {
+    symbols,
+    interval = 5000, // 5초 간격 (Rate Limit 고려)
+    enabled = false,
+    onError,
+  } = options;
+
+  const { updateTickers } = useTickerStore();
+  const [isPolling, setIsPolling] = useState(false);
+  const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  /**
+   * REST API로 티커 데이터 가져오기
+   * 캐시된 데이터를 우선 사용하여 Rate Limit 방지
+   */
+  const fetchTickers = useCallback(async () => {
+    if (symbols.length === 0 || !enabled) return;
+
+    try {
+      // 캐시 키 생성
+      const cacheKey = `tickers:${symbols.sort().join(',')}`;
+      
+      // 캐시된 데이터 확인 (30초 TTL)
+      const cachedData = apiCache.get<BinanceTickerResponse[]>(cacheKey);
+      if (cachedData) {
+        const tickers: Ticker[] = cachedData.map(adaptBinanceTicker);
+        updateTickers(tickers);
+        return;
+      }
+
+      // REST API 호출
+      const symbolsParam = symbols.join(',');
+      const response = await fetch(`/api/coins?symbols=${encodeURIComponent(symbolsParam)}`);
+
+      if (!response.ok) {
+        // Rate Limit 에러인 경우 캐시된 데이터가 있으면 사용
+        if (response.status === 429) {
+          const staleCache = apiCache.get<BinanceTickerResponse[]>(cacheKey);
+          if (staleCache) {
+            const tickers: Ticker[] = staleCache.map(adaptBinanceTicker);
+            updateTickers(tickers);
+            onError?.(new Error('Rate Limit: 캐시된 데이터를 사용합니다'));
+            return;
+          }
+        }
+        throw new Error(`Failed to fetch tickers: ${response.status}`);
+      }
+
+      const data: BinanceTickerResponse[] = await response.json();
+      
+      // 캐시에 저장 (30초 TTL)
+      apiCache.set(cacheKey, data, 30000);
+      
+      const tickers: Ticker[] = data.map(adaptBinanceTicker);
+      updateTickers(tickers);
+    } catch (error) {
+      console.error('Polling error:', error);
+      onError?.(error as Error);
+    }
+  }, [symbols, enabled, updateTickers, onError]);
+
+  /**
+   * 폴링 시작
+   */
+  const startPolling = useCallback(() => {
+    if (isPollingRef.current || !enabled || symbols.length === 0) return;
+
+    isPollingRef.current = true;
+    setIsPolling(true);
+
+    // 즉시 한 번 실행
+    fetchTickers();
+
+    // 주기적으로 실행
+    pollingTimerRef.current = setInterval(() => {
+      if (isPollingRef.current) {
+        fetchTickers();
+      }
+    }, interval);
+  }, [enabled, symbols.length, interval, fetchTickers]);
+
+  // ...
+}
+```
+
+### 모드 전환 로직
+
+```typescript
+// components/CoinListClient.tsx
+
+// Degraded Mode: WebSocket 실패 시 REST 폴링 모드 전환
+const shouldUsePolling = hasReachedMaxAttempts || wsStatus === 'error';
+const { isPolling: isPollingMode } = usePollingMode({
+  symbols,
+  interval: 5000, // 5초 간격 (Rate Limit 고려)
+  enabled: shouldUsePolling && symbols.length > 0,
+  onError: (error) => {
+    console.error('Polling mode error:', error);
+  },
+});
+```
+
+### 모드 전환 UI
+
+```typescript
+// 폴링 모드 표시
+{isPollingMode && (
+  <span className="px-2 py-1 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30">
+    폴링 모드
+  </span>
+)}
+
+// 상태 텍스트
+const wsStatusText = useMemo(() => {
+  if (isPollingMode) {
+    return '폴링 모드 (5초 간격)';
+  }
+  // ... 기존 로직
+}, [wsStatus, reconnectAttempts, hasReachedMaxAttempts, isPollingMode]);
+```
+
+### 학습 가치
+
+- **Graceful Degradation**: 실시간 기능 실패 시에도 기본 기능 유지
+- **사용자 경험 보존**: 데이터 표시는 계속되며, 업데이트 주기만 느려짐
+- **자동 복구**: WebSocket 재연결 성공 시 자동으로 폴링 모드 종료
+- **Rate Limit 대응**: 폴링 간격 조정 및 캐시 활용으로 Rate Limit 방지
+
+### 폴링 vs WebSocket 비교
+
+| 항목 | WebSocket | 폴링 모드 |
+| :--- | :--- | :--- |
+| **업데이트 주기** | 실시간 (즉시) | 주기적 (5초) |
+| **서버 부하** | 낮음 (연결 유지) | 높음 (주기적 요청) |
+| **네트워크 효율** | 높음 (양방향) | 낮음 (단방향) |
+| **안정성** | 연결 끊김 시 실패 | 네트워크 오류에도 재시도 가능 |
+| **사용 시기** | 정상 상태 | WebSocket 실패 시 |
+
+### 실무 적용
+
+- 실시간 대시보드 (폴백 전략)
+- 채팅 애플리케이션 (폴링 폴백)
+- 주식/암호화폐 가격 표시
+- IoT 센서 데이터 수집
+- 모바일 네트워크 환경 대응
+
+---
+
+## 23. API 응답 캐싱 전략 및 Rate Limit 대응
+
+**위치**: `utils/apiCache.ts` + `hooks/usePollingMode.ts`
+
+### 핵심 개념
+
+API Rate Limit을 피하고 성능을 최적화하기 위해 응답 데이터를 메모리에 캐싱하고, Rate Limit 발생 시 캐시된 데이터를 우선 사용하는 전략입니다. TTL(Time To Live) 기반 만료 관리로 데이터 신선도를 보장합니다.
+
+### 구현 코드
+
+```typescript
+// utils/apiCache.ts
+
+/**
+ * 메모리 기반 캐시 저장소
+ */
+class ApiCache {
+  private cache = new Map<string, CacheEntry<unknown>>();
+  private defaultTTL = 60000; // 기본 TTL: 60초
+
+  /**
+   * 캐시에 데이터 저장
+   */
+  set<T>(key: string, data: T, ttl?: number): void {
+    const now = Date.now();
+    const expiresAt = now + (ttl || this.defaultTTL);
+
+    this.cache.set(key, {
+      data,
+      timestamp: now,
+      expiresAt,
+    });
+  }
+
+  /**
+   * 캐시에서 데이터 조회
+   * @returns 캐시된 데이터 또는 null (만료되었거나 없음)
+   */
+  get<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+
+    if (!entry) {
+      return null;
+    }
+
+    // 만료 확인
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return entry.data as T;
+  }
+
+  /**
+   * 만료된 캐시 항목 정리
+   */
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+      }
+    }
+  }
+}
+
+// 싱글톤 인스턴스
+export const apiCache = new ApiCache();
+
+// 주기적으로 만료된 캐시 정리 (5분마다)
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    apiCache.cleanup();
+  }, 5 * 60 * 1000);
+}
+```
+
+### 캐시 우선 사용 로직
+
+```typescript
+// hooks/usePollingMode.ts
+
+const fetchTickers = useCallback(async () => {
+  // 캐시 키 생성
+  const cacheKey = `tickers:${symbols.sort().join(',')}`;
+  
+  // 1. 캐시된 데이터 확인 (30초 TTL)
+  const cachedData = apiCache.get<BinanceTickerResponse[]>(cacheKey);
+  if (cachedData) {
+    // 캐시된 데이터 사용
+    const tickers: Ticker[] = cachedData.map(adaptBinanceTicker);
+    updateTickers(tickers);
+    return; // API 호출 생략
+  }
+
+  // 2. REST API 호출
+  const response = await fetch(`/api/coins?symbols=${encodeURIComponent(symbolsParam)}`);
+
+  // 3. Rate Limit 에러 처리
+  if (response.status === 429) {
+    // Rate Limit 발생 시 캐시된 데이터가 있으면 사용 (만료된 캐시도 허용)
+    const staleCache = apiCache.get<BinanceTickerResponse[]>(cacheKey);
+    if (staleCache) {
+      const tickers: Ticker[] = staleCache.map(adaptBinanceTicker);
+      updateTickers(tickers);
+      onError?.(new Error('Rate Limit: 캐시된 데이터를 사용합니다'));
+      return;
+    }
+    throw new Error(`Rate Limit: ${response.status}`);
+  }
+
+  // 4. 성공 시 캐시에 저장
+  const data: BinanceTickerResponse[] = await response.json();
+  apiCache.set(cacheKey, data, 30000); // 30초 TTL
+  // ...
+}, [symbols, enabled, updateTickers, onError]);
+```
+
+### 캐싱 전략
+
+#### 1. TTL 기반 만료 관리
+
+```typescript
+const expiresAt = now + (ttl || this.defaultTTL);
+
+// 조회 시 만료 확인
+if (Date.now() > entry.expiresAt) {
+  this.cache.delete(key);
+  return null;
+}
+```
+
+**장점:**
+- 데이터 신선도 보장
+- 메모리 자동 정리
+- 간단한 구현
+
+#### 2. Rate Limit 시 Stale Cache 허용
+
+```typescript
+if (response.status === 429) {
+  // 만료된 캐시도 허용 (데이터가 없는 것보다 낫다)
+  const staleCache = apiCache.get<BinanceTickerResponse[]>(cacheKey);
+  if (staleCache) {
+    // 캐시된 데이터 사용
+  }
+}
+```
+
+**장점:**
+- Rate Limit 발생 시에도 데이터 표시 가능
+- 사용자 경험 보존
+- 서버 부하 감소
+
+#### 3. 주기적 캐시 정리
+
+```typescript
+// 5분마다 만료된 캐시 정리
+setInterval(() => {
+  apiCache.cleanup();
+}, 5 * 60 * 1000);
+```
+
+**장점:**
+- 메모리 누수 방지
+- 오래된 캐시 자동 제거
+- 성능 유지
+
+### 학습 가치
+
+- **Rate Limit 대응**: 캐시 우선 사용으로 API 호출 최소화
+- **성능 최적화**: 네트워크 요청 감소, 응답 시간 단축
+- **사용자 경험**: Rate Limit 발생 시에도 데이터 표시
+- **메모리 관리**: TTL 기반 자동 정리, 주기적 cleanup
+
+### 캐시 전략 비교
+
+| 전략 | 장점 | 단점 | 사용 시기 |
+| :--- | :--- | :--- | :--- |
+| **메모리 캐시** | 빠른 접근, 간단한 구현 | 서버 재시작 시 손실 | 클라이언트 사이드 |
+| **localStorage** | 영구 저장 | 용량 제한, 동기 작업 | 사용자 설정 |
+| **Redis** | 분산 캐시, 영구 저장 | 서버 필요 | 서버 사이드 |
+| **CDN 캐시** | 전역 분산 | 설정 복잡 | 정적 리소스 |
+
+### 실무 적용
+
+- API Rate Limit 대응
+- 성능 최적화 (네트워크 요청 감소)
+- 오프라인 지원 (캐시된 데이터 표시)
+- 대시보드 데이터 갱신
+- 검색 결과 캐싱
+
+---
+
+## 24. React Error Boundary를 활용한 전역 에러 처리
+
+**위치**: `components/ErrorBoundary.tsx` + `components/ErrorBoundaryWrapper.tsx` + `app/layout.tsx`
+
+### 핵심 개념
+
+React 컴포넌트 트리에서 발생한 JavaScript 에러를 캐치하여 전체 애플리케이션이 크래시되는 것을 방지하고, 사용자에게 친화적인 에러 메시지를 표시하는 패턴입니다. 클래스 컴포넌트로만 구현 가능하며, `componentDidCatch` 생명주기 메서드를 사용합니다.
+
+### 구현 코드
+
+```typescript
+// components/ErrorBoundary.tsx
+
+interface Props {
+  children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    // 다음 렌더에서 폴백 UI가 표시되도록 상태를 업데이트
+    return {
+      hasError: true,
+      error,
+    };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // 에러 로깅
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    
+    // 에러 정보 저장
+    this.setState({
+      error,
+      errorInfo,
+    });
+
+    // 외부 에러 핸들러 호출 (에러 모니터링 서비스 등)
+    this.props.onError?.(error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      // 커스텀 폴백 UI가 제공되면 사용
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
+      // 기본 폴백 UI
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-gray-900 px-4">
+          <div className="max-w-md w-full rounded-lg border border-red-500/30 bg-gray-800 p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/20">
+                <svg className="h-6 w-6 text-red-400" ...>
+                  {/* 에러 아이콘 */}
+                </svg>
+              </div>
+              <h2 className="text-xl font-semibold text-white">오류가 발생했습니다</h2>
+            </div>
+
+            <p className="mb-4 text-gray-400">
+              예상치 못한 오류가 발생했습니다. 페이지를 새로고침하거나 다시 시도해주세요.
+            </p>
+
+            {process.env.NODE_ENV === 'development' && this.state.error && (
+              <details className="mb-4 rounded border border-gray-700 bg-gray-900/50 p-3">
+                <summary className="cursor-pointer text-sm text-gray-400 hover:text-gray-300">
+                  에러 상세 정보 (개발 모드)
+                </summary>
+                <div className="mt-2 text-xs text-red-400">
+                  <p className="font-semibold">{this.state.error.name}: {this.state.error.message}</p>
+                  {this.state.error.stack && (
+                    <pre className="mt-2 whitespace-pre-wrap break-words">
+                      {this.state.error.stack}
+                    </pre>
+                  )}
+                </div>
+              </details>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={this.handleReset}
+                className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 transition-colors cursor-pointer"
+              >
+                다시 시도
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="flex-1 rounded-lg border border-gray-600 bg-gray-700 px-4 py-2 text-white hover:bg-gray-600 transition-colors cursor-pointer"
+              >
+                페이지 새로고침
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+### 전역 적용
+
+```typescript
+// components/ErrorBoundaryWrapper.tsx
+'use client';
+
+import { ErrorBoundary } from './ErrorBoundary';
+
+export default function ErrorBoundaryWrapper({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        // 에러 로깅 (실제 프로덕션에서는 에러 모니터링 서비스로 전송)
+        console.error('Global error caught:', error, errorInfo);
+        
+        // 필요시 에러 모니터링 서비스로 전송
+        // if (typeof window !== 'undefined' && window.Sentry) {
+        //   window.Sentry.captureException(error, { contexts: { react: errorInfo } });
+        // }
+      }}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
+```
+
+```typescript
+// app/layout.tsx
+import ErrorBoundaryWrapper from "@/components/ErrorBoundaryWrapper";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body className="bg-gray-900 text-white">
+        <ErrorBoundaryWrapper>
+          <Header />
+          {children}
+        </ErrorBoundaryWrapper>
+      </body>
+    </html>
+  );
+}
+```
+
+### 핵심 패턴
+
+#### 1. getDerivedStateFromError
+
+```typescript
+static getDerivedStateFromError(error: Error): Partial<State> {
+  // 에러 발생 시 상태 업데이트
+  return {
+    hasError: true,
+    error,
+  };
+}
+```
+
+**역할:**
+- 에러 발생 시 상태 업데이트
+- 렌더링 단계에서 호출 (부수 효과 없음)
+- 폴백 UI 표시를 위한 상태 설정
+
+#### 2. componentDidCatch
+
+```typescript
+componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  // 에러 로깅
+  console.error('ErrorBoundary caught an error:', error, errorInfo);
+  
+  // 에러 모니터링 서비스로 전송
+  this.props.onError?.(error, errorInfo);
+}
+```
+
+**역할:**
+- 에러 로깅 및 모니터링
+- 에러 정보 수집
+- 외부 서비스로 에러 전송
+
+#### 3. 개발 모드에서만 상세 정보 표시
+
+```typescript
+{process.env.NODE_ENV === 'development' && this.state.error && (
+  <details>
+    <summary>에러 상세 정보 (개발 모드)</summary>
+    <pre>{this.state.error.stack}</pre>
+  </details>
+)}
+```
+
+**장점:**
+- 개발 중에는 상세 정보 제공
+- 프로덕션에서는 사용자 친화적 메시지만 표시
+- 보안 고려 (스택 트레이스 노출 방지)
+
+### 학습 가치
+
+- **애플리케이션 안정성**: 일부 컴포넌트 에러로 전체 앱이 크래시되는 것 방지
+- **사용자 경험**: 친화적인 에러 메시지 및 복구 옵션 제공
+- **에러 모니터링**: 에러 발생 시 자동 로깅 및 추적
+- **개발 효율성**: 개발 모드에서 상세 에러 정보 제공
+
+### Error Boundary가 캐치하지 않는 에러
+
+- 이벤트 핸들러 내부 에러 (try-catch 필요)
+- 비동기 코드 에러 (Promise rejection 등)
+- 서버 사이드 렌더링 에러
+- Error Boundary 자체의 에러
+
+### 실무 적용
+
+- 전역 에러 처리
+- 에러 모니터링 서비스 통합 (Sentry, LogRocket 등)
+- 사용자 친화적 에러 메시지
+- 에러 복구 옵션 제공
+- 개발/프로덕션 환경별 에러 표시
+
+---
+
+## 25. WebSocket 재연결 시도 횟수 제한 및 사용자 알림
+
+**위치**: `lib/websocket/binanceWebSocket.ts` + `hooks/useBinanceWebSocket.ts` + `components/CoinListClient.tsx`
+
+### 핵심 개념
+
+WebSocket 연결이 계속 실패할 때 무한 재연결을 방지하고, 사용자에게 재연결 상태를 명확히 알려주는 패턴입니다. 최대 재연결 시도 횟수를 제한하고, 도달 시 자동 재연결을 중지하며 수동 재연결 버튼을 제공합니다.
+
+### 구현 코드
+
+```typescript
+// lib/websocket/binanceWebSocket.ts
+
+export class BinanceWebSocketClient {
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10; // 최대 재연결 시도 횟수
+
+  /**
+   * 지수 백오프 재연결 스케줄링
+   */
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer || !this.config) {
+      return;
+    }
+
+    // 최대 재연결 시도 횟수 확인
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.setStatus('error');
+      this.config.onError?.(new Error(
+        `최대 재연결 시도 횟수(${this.maxReconnectAttempts}회)에 도달했습니다. 수동으로 재연결해주세요.`
+      ));
+      return; // 재연결 중지
+    }
+
+    const delay = getReconnectDelay(this.reconnectAttempts);
+    this.reconnectAttempts++;
+
+    this.reconnectTimer = setTimeout(() => {
+      if (this.config) {
+        this.reconnectTimer = null;
+        this.connect();
+      }
+    }, delay);
+  }
+
+  /**
+   * 재연결 시도 횟수 리셋 (수동 재연결 시 사용)
+   */
+  resetReconnectAttempts(): void {
+    this.reconnectAttempts = 0;
+  }
+
+  /**
+   * 재연결 시도 횟수 조회
+   */
+  getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
+  /**
+   * 최대 재연결 시도 횟수 도달 여부
+   */
+  hasReachedMaxAttempts(): boolean {
+    return this.reconnectAttempts >= this.maxReconnectAttempts;
+  }
+}
+```
+
+### 사용자 알림 UI
+
+```typescript
+// components/CoinListClient.tsx
+
+const { 
+  status: wsStatus, 
+  reconnectAttempts, 
+  hasReachedMaxAttempts,
+  connect: reconnectWebSocket 
+} = useBinanceWebSocket({
+  symbols,
+  // ...
+});
+
+// WebSocket 상태 표시용 텍스트
+const wsStatusText = useMemo(() => {
+  if (isPollingMode) {
+    return '폴링 모드 (5초 간격)';
+  }
+  if (hasReachedMaxAttempts) {
+    return `연결 실패 (${reconnectAttempts}/${10}회 시도)`;
+  }
+  if (wsStatus === 'connecting' && reconnectAttempts > 0) {
+    return `재연결 중... (${reconnectAttempts}/${10}회)`;
+  }
+  return {
+    disconnected: '연결 끊김',
+    connecting: '연결 중...',
+    connected: '실시간 업데이트 중',
+    error: '연결 오류',
+  }[wsStatus];
+}, [wsStatus, reconnectAttempts, hasReachedMaxAttempts, isPollingMode]);
+
+// UI 렌더링
+<div className="flex items-center gap-2">
+  {isPollingMode && (
+    <span className="px-2 py-1 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30">
+      폴링 모드
+    </span>
+  )}
+  <p className={`text-sm ${wsStatusColor}`}>
+    {wsStatusText}
+  </p>
+  {(hasReachedMaxAttempts || isPollingMode) && (
+    <button
+      onClick={() => reconnectWebSocket()}
+      className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
+      title="WebSocket 재연결 시도 (성공 시 폴링 모드 자동 종료)"
+    >
+      재연결
+    </button>
+  )}
+</div>
+```
+
+### 재연결 시도 횟수 리셋
+
+```typescript
+// hooks/useBinanceWebSocket.ts
+
+const connect = useCallback(() => {
+  if (clientRef.current) {
+    // 수동 재연결 시 재연결 시도 횟수 리셋
+    if (clientRef.current.hasReachedMaxAttempts()) {
+      clientRef.current.resetReconnectAttempts();
+      setReconnectAttempts(0);
+    }
+    clientRef.current.connect();
+  }
+}, []);
+```
+
+### 학습 가치
+
+- **무한 재연결 방지**: 최대 시도 횟수 제한으로 리소스 낭비 방지
+- **사용자 피드백**: 재연결 시도 횟수 및 상태를 명확히 표시
+- **수동 복구 옵션**: 사용자가 직접 재연결을 시도할 수 있음
+- **자동 폴백**: 최대 시도 도달 시 Degraded Mode로 자동 전환
+
+### 재연결 전략 비교
+
+| 전략 | 장점 | 단점 | 사용 시기 |
+| :--- | :--- | :--- | :--- |
+| **무한 재연결** | 자동 복구 | 리소스 낭비, 서버 부하 | 개발 환경 |
+| **제한된 재연결** | 리소스 효율, 사용자 제어 | 수동 개입 필요 | 프로덕션 환경 |
+| **지수 백오프** | 서버 부하 감소 | 복구 시간 증가 | 권장 방식 |
+
+### 실무 적용
+
+- WebSocket 연결 관리
+- 실시간 데이터 서비스
+- 채팅 애플리케이션
+- 게임 서버 연결
+- IoT 디바이스 통신
+
+---
+
 ## 🎯 실무 적용 시나리오
 
 ### 시나리오 1: 실시간 주식 대시보드
@@ -2280,13 +3065,14 @@ const setupWebSocket = useCallback(..., [updateChartData]);
 
 ## 💡 핵심 요약
 
-1. **성능 최적화**: 배치 업데이트, Map 데이터 구조, ref를 통한 의존성 최적화, 애니메이션 스로틀링, 디바운스 패턴, 무한 스크롤, useCallback 메모이제이션
-2. **안정성**: 지수 백오프, Rate Limit 처리, 디바운스, WebSocket 재연결, 동적 구독 관리, 데이터 간격 감지 및 메우기
+1. **성능 최적화**: 배치 업데이트, Map 데이터 구조, ref를 통한 의존성 최적화, 애니메이션 스로틀링, 디바운스 패턴, 무한 스크롤, useCallback 메모이제이션, API 응답 캐싱
+2. **안정성**: 지수 백오프, Rate Limit 처리, 디바운스, WebSocket 재연결, 동적 구독 관리, 데이터 간격 감지 및 메우기, 재연결 시도 횟수 제한, Error Boundary
 3. **유지보수성**: 어댑터 패턴, 리포지토리 패턴, 커스텀 훅 추상화, 외부 라이브러리 통합 패턴
-4. **사용자 경험**: 반응형 디자인, Server Components, 실시간 업데이트, 가격 변경 하이라이트, 영구 저장, 검색 가능한 모달, 키보드 네비게이션
-5. **최신 기술**: Next.js Server Components, TypeScript, Tailwind CSS, Zustand Persist, Lightweight Charts, Intersection Observer API
+4. **사용자 경험**: 반응형 디자인, Server Components, 실시간 업데이트, 가격 변경 하이라이트, 영구 저장, 검색 가능한 모달, 키보드 네비게이션, Degraded Mode, 사용자 친화적 에러 메시지
+5. **최신 기술**: Next.js Server Components, TypeScript, Tailwind CSS, Zustand Persist, Lightweight Charts, Intersection Observer API, React Error Boundary
 6. **상태 관리**: Set과 Map을 활용한 복합 상태 관리, 이전 값 추적 패턴, localStorage 영구 저장, 실시간 데이터와 과거 데이터 병합
 7. **데이터 처리**: 실시간 데이터 병합, 데이터 간격 감지 및 메우기, 시간 기준 정렬 및 중복 제거
+8. **에러 핸들링**: Graceful Degradation, API 캐싱 전략, 전역 에러 처리, 재연결 시도 제한
 
 이러한 패턴들을 이해하고 적용하면, 고성능이고 유지보수하기 쉬운 애플리케이션을 구축할 수 있습니다.
 

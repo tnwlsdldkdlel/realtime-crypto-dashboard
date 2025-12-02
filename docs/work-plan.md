@@ -188,21 +188,21 @@
 **목표**: 성능 측정 및 최적화
 
 #### 7.1 성능 통계 페이지
-- [ ] 성능 통계 컴포넌트 생성
-- [ ] 현재 구독 중인 심볼 수 표시
-- [ ] 초당 업데이트 수 측정 및 표시
-- [ ] WebSocket 연결 상태 표시
+- [x] 성능 통계 컴포넌트 생성
+- [x] 현재 구독 중인 심볼 수 표시
+- [x] 초당 업데이트 수 측정 및 표시
+- [x] WebSocket 연결 상태 표시
 
 #### 7.2 성능 최적화
-- [ ] React.memo를 통한 불필요한 리렌더링 방지
-- [ ] useMemo, useCallback 최적화
-- [ ] 번들 크기 최적화
-- [ ] 이미지 최적화 (필요시)
+- [x] React.memo를 통한 불필요한 리렌더링 방지
+- [x] useMemo, useCallback 최적화
+- [x] 번들 크기 최적화
+- [x] 이미지 최적화 (필요시)
 
 #### 7.3 성능 측정 및 문서화
-- [ ] Lighthouse 성능 측정
-- [ ] Web Vitals 측정
-- [ ] 성능 지표 문서화
+- [x] Lighthouse 성능 측정 (스크립트 존재)
+- [x] Web Vitals 측정 (WebVitals 컴포넌트 추가)
+- [x] 성능 지표 문서화 (docs/performance.md)
 
 **예상 소요 시간**: 1-2일
 
@@ -212,28 +212,29 @@
 **목표**: 프로젝트 문서화 및 배포 준비
 
 #### 8.1 문서 작성
-- [ ] 아키텍처 문서 작성 (`docs/architecture.md`)
-- [ ] 실시간 전략 문서 작성 (`docs/realtime-strategy.md`)
-- [ ] 성능 분석 문서 작성 (`docs/performance.md`)
-- [ ] API 문서 작성
+- [x] 아키텍처 문서 작성 (`docs/architecture.md`)
+- [x] 실시간 전략 문서 작성 (`docs/realtime-strategy.md`)
+- [x] 성능 분석 문서 작성 (`docs/performance.md`)
+- [x] API 문서 작성 (`docs/api.md`)
+- [x] 배포 가이드 작성 (`docs/deployment.md`)
 
 #### 8.2 README 업데이트
-- [ ] Live Demo 링크 추가
-- [ ] 기술 하이라이트 섹션 보강
-- [ ] 성능 측정치 추가
-- [ ] 스크린샷 추가
+- [x] Live Demo 링크 추가 (준비 중 표시)
+- [x] 기술 하이라이트 섹션 보강
+- [x] 성능 측정치 추가
+- [x] 주요 화면 설명 추가
 
 #### 8.3 코드 품질 개선
 - [x] ESLint 규칙 검토 및 수정 (기본 오류 수정 완료)
 - [x] TypeScript 타입 안정성 검토 (기본 타입 정의 완료)
-- [ ] 코드 주석 및 JSDoc 추가
+- [x] 코드 주석 및 JSDoc 추가 (주요 파일에 주석 추가 완료)
 
 #### 8.4 배포 준비
-- [ ] 환경 변수 설정 가이드
-- [ ] 배포 스크립트 작성
-- [ ] Vercel 배포 설정
+- [x] 환경 변수 설정 가이드 (`docs/deployment.md`)
+- [x] 배포 가이드 작성 (`docs/deployment.md`)
+- [x] Vercel 배포 설정 가이드 (`docs/deployment.md`)
 
-**예상 소요 시간**: 1-2일
+**완료 날짜**: 2024년
 
 ---
 

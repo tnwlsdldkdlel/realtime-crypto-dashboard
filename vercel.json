@@ -1,9 +1,0 @@
-{
-  "functions": {
-    "app/api/**/*.ts": {
-      "regions": ["iad1"]
-    }
-  },
-  "regions": ["iad1"]
-}
-
